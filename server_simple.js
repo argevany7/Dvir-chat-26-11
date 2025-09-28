@@ -458,7 +458,9 @@ whatsappClient.on('message', async (message) => {
 
 // פונקציה לזיהוי תשלום בהודעה
 function detectPaymentConfirmation(message) {
-    const lowerMessage = message.toLowerCase();
+    const lowerMessage = message.toLowerCase().trim();
+    
+    console.log('🔍 בודק הודעה לזיהוי תשלום:', lowerMessage);
     
     // ביטויים ברורים - לא צריך לשאול שוב
     const clearPaymentPatterns = [
@@ -474,14 +476,26 @@ function detectPaymentConfirmation(message) {
         /^סגור$/, /^מוכן$/, /הכל בסדר/, /^זה$/
     ];
     
-    const isClearPayment = clearPaymentPatterns.some(pattern => pattern.test(lowerMessage));
-    const isUnclearPayment = unclearPaymentPatterns.some(pattern => pattern.test(lowerMessage));
+    const isClearPayment = clearPaymentPatterns.some(pattern => {
+        const match = pattern.test(lowerMessage);
+        if (match) console.log('✅ זוהה ביטוי ברור:', pattern.source);
+        return match;
+    });
     
-    return {
+    const isUnclearPayment = unclearPaymentPatterns.some(pattern => {
+        const match = pattern.test(lowerMessage);
+        if (match) console.log('⚠️ זוהה ביטוי לא ברור:', pattern.source);
+        return match;
+    });
+    
+    const result = {
         detected: isClearPayment || isUnclearPayment,
         isClear: isClearPayment,
         isUnclear: isUnclearPayment
     };
+    
+    console.log('📊 תוצאת זיהוי תשלום:', result);
+    return result;
 }
 
 // פונקציה לזיהוי אישור תשלום (כן/לא)
@@ -513,9 +527,20 @@ async function processMessage(message, sessionId = 'default') {
 
     console.log('📨 Processing message:', message);
 
+    // חילוץ מידע אישי מההודעה
+    extractPersonalInfo(message, sessionId);
+
     // בדיקה אם זה אישור תשלום
     const paymentDetection = detectPaymentConfirmation(message);
     const paymentConfirmation = detectPaymentConfirmationResponse(message);
+    
+    console.log('🔍 זיהוי תשלום:', {
+        detected: paymentDetection.detected,
+        isClear: paymentDetection.isClear,
+        isUnclear: paymentDetection.isUnclear,
+        positiveConfirmation: paymentConfirmation.isPositive,
+        negativeConfirmation: paymentConfirmation.isNegative
+    });
     
     // טעינת היסטוריית השיחה מהמאגר
     const conversationHistory = await loadConversationHistory(sessionId);
@@ -558,16 +583,32 @@ async function processMessage(message, sessionId = 'default') {
         const clientInfo = await loadClientInfo(sessionId);
         const phone = sessionId.replace('@c.us', '');
         
+        console.log('📋 מידע לקוח לשליחה לדביר:', clientInfo);
+        
         const paymentDetails = {
             type: 'אימון ניסיון',
             notes: paymentDetection.isClear ? 'הלקוח אמר שהוא שילם' : 'הלקוח אישר ביצוע תשלום'
         };
         
         // שליחת הודעה לדביר
-        await sendPaymentNotificationToDvir({
-            ...clientInfo,
-            phone: phone
-        }, paymentDetails);
+        try {
+            await sendPaymentNotificationToDvir({
+                ...clientInfo,
+                phone: phone
+            }, paymentDetails);
+            console.log('✅ הודעה נשלחה לדביר בהצלחה');
+        } catch (error) {
+            console.error('❌ שגיאה בשליחת הודעה לדביר:', error);
+        }
+    } else {
+        console.log('ℹ️ לא זוהה אישור תשלום או חסר מידע');
+    }
+
+    // שמירת מידע הלקוח במאגר נתונים (אם יש מידע חדש)
+    const currentProfile = userProfiles[sessionId] || {};
+    if (currentProfile.name || currentProfile.age || currentProfile.childAge) {
+        console.log('💾 שומר מידע לקוח במאגר נתונים');
+        saveClientToDB(sessionId, currentProfile);
     }
 
     return response;
@@ -649,16 +690,16 @@ async function createComprehensiveSystemPrompt(sessionId) {
 תאריך ושעה נוכחיים: ${currentDateTime} (Asia/Jerusalem)
 
 === הוראות מערכת חשובות ===
-1. אתה מנהל שיחת מכירה מקצועית לאימוני אומנויות לחימה
-2. מטרתך: לקבוע אימון ניסיון עם הלקוח
-3. תמיד תענה בעברית בלבד, בטון חברי ומקצועי
+1. אתה מנהל שיחה חברית ואנושית לאימוני אומנויות לחימה
+2. מטרתך: לקבוע אימון ניסיון עם הלקוח בגישה חברית
+3. תמיד תענה בעברית בלבד, בטון חברי, נינוח ואנושי
 4. אל תחשוף שאתה בוט - אתה דביר האמיתי
 5. זכור מידע שכבר נמסר - אל תשאל שוב על דברים ידועים
-6. **חובה לשאול גיל! זה הכי חשוב - בלי גיל אי אפשר להתאים קבוצה או מחיר**
+6. **חובה לשאול שם ואז גיל! בלי גיל אי אפשר להתאים קבוצה או מחיר**
 7. לעולם לא לומר שאתה צ'אטבוט - אם נשאל ישירות, הכחש ותגיד שאתה דביר
-8. שימוש בשם: השתמש בשם הלקוח מקסימום פעם אחת (ועוד פעם בסיום אם נדרש)
+8. שימוש בשם: השתמש בשם הלקוח מקסימום פעם אחת בכל השיחה
 9. לא לשאול "איך אפשר לעזור" - תוביל את השיחה לשם→גיל→עבור מי→סוג אימון→ניסיון
-10. ניהול שיחה: חתור מהר למידע קריטי ולהוביל לסגירת אימון ניסיון
+10. ניהול שיחה: תהיה כמו חבר נחמד שממליץ, לא איש מכירות טיפיקלי
 
 === מידע על הלקוח (אם ידוע) ===`;
 
@@ -704,8 +745,8 @@ async function createComprehensiveSystemPrompt(sessionId) {
 - ביט: הופסק
 
 === קישורי תשלום ===
-ילדים/נוער: https://letts.co.il/payment/OEVGZEpZaktQbFFSVUYrVXREMVcrdz09
-בוגרים: https://letts.co.il/payment/TVhqVTYxTUpCUkxHa3BTMmJmQ0YxQT09
+ילדים/נוער (10 שקלים): https://letts.co.il/payment/OEVGZEpZaktQbFFSVUYrVXREMVcrdz09
+בוגרים (25 שקלים): https://letts.co.il/payment/TVhqVTYxTUpCUkxHa3BTMmJmQ0YxQT09
 
 === מיקום ===
 הרצוג 12, הרצליה
@@ -827,7 +868,7 @@ async function createComprehensiveSystemPrompt(sessionId) {
 - הצע 2 אופציות קרובות: "נקבע לאימון היכרות ב{יום קרוב} או ב{יום שני}?"
 - לפני קישור: כתובת + סרטון + מה להביא
 - הדגש: כדי לשמור ולשריין מקום נדרש תשלום לאימון ניסיון
-- ואז "מצרף קישור" + הקישור המתאים
+- ואז רק "מצרף קישור:" ובשורה הבאה הקישור המתאים (ללא טקסט נוסף)
 - בקש מהלקוח לעדכן אחרי שביצע תשלום
 
 === התנגדויות ===
@@ -840,26 +881,33 @@ async function createComprehensiveSystemPrompt(sessionId) {
 - השתמש בזה בהתאמה אישית
 
 === סגנון כתיבה - חשוב מאוד! ===
-כתוב כמו בן אדם אמיתי - מקצועי אבל טבעי, כאילו אתה מסביר לחבר.
-הימנע מבאזוורדס, קלישאות תאגידיות וביטויים דרמטיים.
-אל תכתוב כמו הודעה לעיתונות או רובוט.
-השפה צריכה להיות ברורה, ישירה, זורמת ואנושית.
-אל תשתמש במקף ארוך (—).
-תשדר ביטחון, רוגע ופשטות.
+כתוב כמו חבר טוב שממליץ - חם, אנושי וטבעי.
+תהיה כמו מישהו שבאמת אכפת לו ורוצה לעזור.
+הימנע מביטויים של איש מכירות טיפיקלי.
+אל תחזור על השם של הלקוח יותר מפעם אחת בכל השיחה.
+השפה צריכה להיות פשוטה, ישירה וחברית.
+תשדר חמימות, אמינות וכנות.
 
 אסור להשתמש במילים/ביטויים הבאים:
-- era, revolutionary, revolutionize, embark, money, journey
-- delve, dive, unlock, unleash, realm, tapestry
-- holistic, synthesize, substantiate, paramount, empirical
-- transcend, pivotal, game changer
-- "בעולם של היום", "בוא נצלול פנימה", "sail into the future"
+- "מעולה!" חוזר ונשנה
+- "אשמח לעזור לך"
+- "בוודאי" או "בהחלט" יותר מדי
+- חזרה על השם יותר מפעם אחת
+- ביטויים פורמליים של איש מכירות
 
-תתנהג כמו מאמן אמיתי שרוצה לעזור ולקבוע אימון ניסיון!`;
+במקום זה:
+- "נשמע טוב"
+- "בסדר גמור"
+- "אוקיי, אז..."
+- "יופי"
+- "נחמד"
+
+תתנהג כמו חבר שממליץ על מקום שהוא אוהב!`;
 
     return prompt;
 }
 
-// טעינת מידע לקוח מהמאגר
+// טעינת מידע לקוח מהמאגר ומהזיכרון
 async function loadClientInfo(sessionId) {
     return new Promise((resolve) => {
         const phone = sessionId.replace('@c.us', '');
@@ -869,7 +917,20 @@ async function loadClientInfo(sessionId) {
                 console.error('❌ שגיאה בטעינת מידע לקוח:', err.message);
                 resolve(null);
             } else {
-                resolve(row);
+                // שילוב מידע מהמאגר ומהזיכרון הנוכחי
+                const memoryProfile = userProfiles[sessionId] || {};
+                const dbProfile = row || {};
+                
+                const combinedInfo = {
+                    name: memoryProfile.name || dbProfile.name,
+                    age: memoryProfile.age || dbProfile.age,
+                    childAge: memoryProfile.childAge,
+                    experience: memoryProfile.experienceDuration || dbProfile.experience,
+                    appointmentDate: memoryProfile.appointmentDate,
+                    phone: phone
+                };
+                
+                resolve(combinedInfo);
             }
         });
     });
@@ -1192,40 +1253,7 @@ function extractPersonalInfo(message, sessionId) {
         console.log('💰 זוהה טענת תשלום מהלקוח - הבוט ישאל לוודא');
     }
     
-    // זיהוי אישור חיובי לשאלת תשלום
-    const positiveConfirmationPatterns = [
-        /^כן$/, /^כן,/, /כן שילמתי/, /כן ביצעתי/, /כן עשיתי/, /כן השלמתי/,
-        /בטח/, /ודאי/, /בוודאי/, /כמובן/, /בהחלט/
-    ];
-    
-    const confirmedPaymentPositive = positiveConfirmationPatterns.some(pattern => lowerMessage.match(pattern));
-    
-    if (confirmedPaymentPositive && userProfile.paymentClaimDetected && userProfile.name) {
-        // שליחת הודעה לדביר עם פרטי הלקוח
-        const clientInfo = {
-            name: userProfile.name,
-            phone: sessionId.replace('@c.us', ''), // הסרת הסיומת של WhatsApp
-            age: userProfile.age,
-            childAge: userProfile.childAge,
-            experience: userProfile.experienceDuration || 'לא צוין',
-            appointmentDate: userProfile.appointmentDate || 'לא נקבע עדיין'
-        };
-        
-        const paymentDetails = {
-            type: userProfile.preferredStyle || userProfile.ageBracket || 'אימון ניסיון',
-            notes: `הלקוח אמר: "${userProfile.paymentClaimMessage}" ואישר בחיוב כשנשאל`
-        };
-        
-        // שליחה אסינכרונית של ההודעה לדביר
-        sendPaymentNotificationToDvir(clientInfo, paymentDetails).catch(err => 
-            console.error('❌ שגיאה בשליחת הודעה לדביר:', err)
-        );
-        
-        // איפוס הסימון
-        userProfiles[sessionId].paymentClaimDetected = false;
-        
-        console.log('✅ נשלחה הודעה לדביר עם פרטי הלקוח ואישור התשלום');
-    }
+    // זיהוי אישור חיובי לשאלת תשלום - זה מטופל עכשיו ב-processMessage
     
     // חילוץ גיל (משתמש או ילד) ושמירה בפרופיל
     try {
