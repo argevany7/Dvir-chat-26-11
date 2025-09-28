@@ -343,6 +343,40 @@ async function sendPaymentConfirmation(clientInfo, paymentDetails) {
     }
 }
 
+// Function to send appointment notification to Dvir when client books trial
+async function sendAppointmentNotificationToDvir(clientInfo, appointmentDetails) {
+    try {
+        const dvirNumber = '0532861226@c.us'; // WhatsApp format
+        const currentDate = new Date().toLocaleString('he-IL', {
+            timeZone: 'Asia/Jerusalem',
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit'
+        });
+        
+        const notification = `🥊 לקוח חדש נרשם לאימון ניסיון:
+📅 תאריך הרשמה: ${currentDate}
+👤 שם לקוח: ${clientInfo.name || 'לא צוין'}
+📞 מספר לקוח: ${clientInfo.phone || 'לא ידוע'}
+👶 גיל: ${clientInfo.age || clientInfo.childAge || 'לא צוין'}
+🥋 ניסיון: ${clientInfo.experience || 'אין ניסיון קודם'}
+📅 מתי יגיע לאימון: ${appointmentDetails.date || 'לא נקבע עדיין'}
+🎯 סוג אימון: ${appointmentDetails.type || 'אימון ניסיון'}
+💰 מחיר: ${appointmentDetails.price || '25 שח'}
+
+💬 הלקוח קיבל קישור תשלום ויגיע לאימון
+📞 ניתן ליצור קשר ישיר עם הלקוח במספר: ${clientInfo.phone || 'לא ידוע'}`;
+        
+        await whatsappClient.sendMessage(dvirNumber, notification);
+        console.log('📨 נשלחה הודעה לדביר על לקוח חדש');
+        
+    } catch (error) {
+        console.error('❌ שגיאה בשליחת הודעה לדביר על לקוח חדש:', error);
+    }
+}
+
 // Function to send payment notification to Dvir with client details
 async function sendPaymentNotificationToDvir(clientInfo, paymentDetails) {
     try {
@@ -428,6 +462,34 @@ whatsappClient.on('message', async (message) => {
         if (response) {
             await message.reply(response);
             console.log('📤 WhatsApp response sent:', response);
+            
+            // בדיקה אם התשובה מכילה קישור תשלום - אז נשלח הודעה לדביר
+            if (response.includes('letts.co.il/payment/')) {
+                console.log('💰 זוהה שליחת קישור תשלום - שולח הודעה לדביר על לקוח חדש');
+                
+                // טעינת מידע הלקוח
+                const clientInfo = await loadClientInfo(sessionId);
+                const phone = sessionId.replace('@c.us', '');
+                
+                console.log('📋 מידע לקוח לשליחה לדביר:', clientInfo);
+                
+                const appointmentDetails = {
+                    type: 'אימון ניסיון',
+                    date: clientInfo.appointmentDate || 'לא נקבע עדיין',
+                    price: response.includes('OEVGZEpZaktQ') ? '10 שח (ילדים/נוער)' : '25 שח (בוגרים)'
+                };
+                
+                // שליחת הודעה לדביר על לקוח חדש
+                try {
+                    await sendAppointmentNotificationToDvir({
+                        ...clientInfo,
+                        phone: phone
+                    }, appointmentDetails);
+                    console.log('✅ הודעה נשלחה לדביר על לקוח חדש בהצלחה');
+                } catch (error) {
+                    console.error('❌ שגיאה בשליחת הודעה לדביר על לקוח חדש:', error);
+                }
+            }
         } else {
             console.log('📤 No response sent (empty/null message)');
         }
@@ -510,6 +572,22 @@ async function processMessage(message, sessionId = 'default') {
 
     console.log('📨 Processing message:', message);
 
+    // בדיקה אם השיחה הסתיימה (אחרי "נתראה באימון")
+    const userProfile = userProfiles[sessionId] || {};
+    if (userProfile.conversationEnded) {
+        // בדיקה אם זו שאלה ספציפית (מכילה סימן שאלה או מילות שאלה)
+        const isQuestion = message.includes('?') || message.includes('איך') || message.includes('מה') || 
+                          message.includes('מתי') || message.includes('איפה') || message.includes('למה') ||
+                          message.includes('כמה') || message.includes('מי') || message.includes('האם');
+        
+        if (!isQuestion) {
+            console.log('🔚 השיחה הסתיימה ולא זוהתה שאלה ספציפית - לא עונה');
+            return null; // לא עונה על הודעות רגילות אחרי סגירה
+        } else {
+            console.log('❓ זוהתה שאלה ספציפית אחרי סגירת השיחה - עונה');
+        }
+    }
+
     // חילוץ מידע אישי מההודעה
     extractPersonalInfo(message, sessionId);
 
@@ -549,6 +627,16 @@ async function processMessage(message, sessionId = 'default') {
     const response = completion.choices[0].message.content;
 
     console.log('📤 תשובה מ-GPT:', response);
+
+    // בדיקה אם זו הודעת סגירה - "נתראה באימון"
+    if (response.includes('נתראה ב') || response.includes('נתראה באימון') || response.includes('נתראה ביום')) {
+        console.log('🔚 זוהתה הודעת סגירה - השיחה תסתיים');
+        // נוסיף דגל שהשיחה הסתיימה
+        if (!userProfiles[sessionId]) {
+            userProfiles[sessionId] = {};
+        }
+        userProfiles[sessionId].conversationEnded = true;
+    }
 
     // שמירת ההודעות החדשות במאגר
     await saveConversationToDB(sessionId, 'user', message);
