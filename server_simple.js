@@ -944,7 +944,7 @@ function extractPersonalInfo(message, sessionId) {
     const lowerMessage = message.toLowerCase();
     const originalMessage = message.trim();
     const userProfile = userProfiles[sessionId] || {};
-    const conversationHistory = conversationMemory[sessionId] || [];
+    // אנחנו לא צריכים את ההיסטוריה כאן - נשתמש רק במידע הנוכחי
     
     // אם יש כבר שם - לא נחפש שם חדש (למנוע החלפה בטעות)
     if (userProfile.name) {
@@ -963,8 +963,8 @@ function extractPersonalInfo(message, sessionId) {
         const simpleNamePattern = /^[א-ת]{2,15}$/;
         const commonWords = ['מעוניין', 'רוצה', 'מחפש', 'באתי', 'הגעתי', 'שלום', 'היי', 'שלומי', 'כן', 'לא', 'תודה', 'בסדר', 'מצוין', 'נהדר', 'מעולה', 'עבורי', 'עבור', 'בשבילי', 'לעצמי'];
         
-        // זיהוי שם פשוט רק בהודעות הראשונות (לא תשובות לשאלות)
-        if (conversationHistory.length <= 2 && simpleNamePattern.test(originalMessage) && !commonWords.includes(lowerMessage)) {
+        // זיהוי שם פשוט - רק אם עדיין אין שם ולא מילה נפוצה
+        if (simpleNamePattern.test(originalMessage) && !commonWords.includes(lowerMessage)) {
             if (!userProfiles[sessionId]) {
                 userProfiles[sessionId] = {};
             }
