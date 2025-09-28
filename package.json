@@ -5,7 +5,9 @@
   "main": "server.js",
   "scripts": {
     "start": "node server_simple.js",
-    "dev": "nodemon server_simple.js"
+    "dev": "nodemon server_simple.js",
+    "kill": "./kill-server.sh",
+    "stop": "./kill-server.sh"
   },
   "keywords": [
     "chatbot",
