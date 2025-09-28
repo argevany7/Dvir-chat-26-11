@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>דביר בסון - מאמן אומנויות לחימה</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        .chat-container {
+            width: 90%;
+            max-width: 800px;
+            height: 80vh;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        
+        .chat-header {
+            background: linear-gradient(135deg, #ff6b6b, #ee5a24);
+            color: white;
+            padding: 20px;
+            text-align: center;
+            font-size: 1.5em;
+            font-weight: bold;
+        }
+        
+        .chat-messages {
+            flex: 1;
+            padding: 20px;
+            overflow-y: auto;
+            background: #f8f9fa;
+        }
+        
+        .message {
+            margin-bottom: 15px;
+            display: flex;
+            align-items: flex-start;
+            opacity: 0;
+            animation: fadeInUp 0.5s ease forwards;
+        }
+        
+        .message.user {
+            justify-content: flex-end;
+        }
+        
+        .message-content {
+            max-width: 70%;
+            padding: 12px 16px;
+            border-radius: 18px;
+            word-wrap: break-word;
+            white-space: pre-wrap;
+            line-height: 1.4;
+            animation: messageSlide 0.3s ease;
+        }
+        
+        .message.bot .message-content {
+            background: white;
+            border: 1px solid #e9ecef;
+            margin-right: 10px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            position: relative;
+        }
+        
+        .message.bot .message-content::before {
+            content: '👨‍🏫';
+            position: absolute;
+            left: -35px;
+            top: 5px;
+            font-size: 20px;
+        }
+        
+        .message.user .message-content {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            margin-left: 10px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+        }
+        
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        @keyframes messageSlide {
+            from {
+                transform: translateX(-10px);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+        
+        .chat-input-container {
+            padding: 20px;
+            background: white;
+            border-top: 1px solid #e9ecef;
+            display: flex;
+            gap: 10px;
+        }
+        
+        .chat-input {
+            flex: 1;
+            padding: 12px 16px;
+            border: 2px solid #e9ecef;
+            border-radius: 25px;
+            font-size: 16px;
+            outline: none;
+            transition: border-color 0.3s;
+        }
+        
+        .chat-input:focus {
+            border-color: #667eea;
+        }
+        
+        .send-button {
+            padding: 12px 24px;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            border: none;
+            border-radius: 25px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: transform 0.2s;
+        }
+        
+        .send-button:hover {
+            transform: translateY(-2px);
+        }
+        
+        .send-button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 10px;
+            color: #666;
+        }
+        
+        .typing-indicator {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background-color: #999;
+            margin: 0 2px;
+            animation: typing 1.4s infinite ease-in-out;
+        }
+        
+        .typing-indicator:nth-child(1) { animation-delay: -0.32s; }
+        .typing-indicator:nth-child(2) { animation-delay: -0.16s; }
+        
+        @keyframes typing {
+            0%, 80%, 100% { transform: scale(0); }
+            40% { transform: scale(1); }
+        }
+        
+        .welcome-message {
+            text-align: center;
+            color: #666;
+            font-style: italic;
+            margin-bottom: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="chat-container">
+        <div class="chat-header">
+            דביר בסון - מאמן אומנויות לחימה
+        </div>
+        
+        <div class="chat-messages" id="chatMessages">
+            <div class="welcome-message" id="welcomeMessage">
+                היי, איך קוראים לך?
+            </div>
+        </div>
+        
+        <div class="loading" id="loading">
+            <div class="typing-indicator"></div>
+            <div class="typing-indicator"></div>
+            <div class="typing-indicator"></div>
+        </div>
+        
+        <div class="chat-input-container">
+            <input type="text" id="chatInput" class="chat-input" placeholder="שאל אותי כל שאלה...">
+            <button id="sendButton" class="send-button">שלח</button>
+        </div>
+    </div>
+
+    <script>
+        const chatMessages = document.getElementById('chatMessages');
+        const chatInput = document.getElementById('chatInput');
+        const sendButton = document.getElementById('sendButton');
+        const loading = document.getElementById('loading');
+
+        // זיכרון שיחה מקומי
+        let sessionId = 'user_' + Date.now();
+        let messageCount = 0;
+        let lastActivity = Date.now();
+
+        // הודעות ממוקדות מכירות
+        const openingScript = [
+            (name) => `היי${name ? ' ' + name : ''}!`,
+            () => `מדבר דביר בסון, מאמן אומנויות לחימה.`,
+            () => `חוזר אליך בהמשך לפרטים שהשארת לנו, אשמח לשמוע קצת יותר כדי להכווין אותך טוב יותר.`,
+            () => `עבור מי האימונים?`,
+            () => `מה הגיל של מי שהאימונים עבורו?`,
+            () => `האם יש רקע קודם באומנויות לחימה?`
+        ];
+
+        // הוספת הודעה לצ'אט עם אנימציה
+        function addMessage(content, isUser = false) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${isUser ? 'user' : 'bot'}`;
+            
+            const contentDiv = document.createElement('div');
+            contentDiv.className = 'message-content';
+            
+            if (isUser) {
+                contentDiv.textContent = content;
+            } else {
+                // אנימציית הקלדה אנושית
+                typeMessage(contentDiv, content);
+            }
+            
+            messageDiv.appendChild(contentDiv);
+            chatMessages.appendChild(messageDiv);
+            
+            // גלילה למטה
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+
+        // אנימציית הקלדה אנושית
+        function typeMessage(element, text) {
+            element.textContent = '';
+            let i = 0;
+            const typingSpeed = 30 + Math.random() * 50; // מהירות משתנה
+            
+            function typeChar() {
+                if (i < text.length) {
+                    element.textContent += text.charAt(i);
+                    i++;
+                    
+                    // האטה אנושית לפעמים
+                    let delay = typingSpeed;
+                    if (Math.random() < 0.1) delay *= 3; // הפסקה אנושית
+                    if (text.charAt(i-1) === '.' || text.charAt(i-1) === '!' || text.charAt(i-1) === '?') {
+                        delay *= 2; // הפסקה אחרי סימני פיסוק
+                    }
+                    
+                    setTimeout(typeChar, delay);
+                }
+            }
+            
+            typeChar();
+        }
+
+        // פונקציה ריקה - בוטלה לחלוטין
+        function sendRandomEncouragement() {}
+
+        // בדיקת פעילות - הודעה אם המשתמש לא פעיל
+        function checkActivity() {}
+
+        // עדכון זמן פעילות
+        function updateActivity() {
+            lastActivity = Date.now();
+            messageCount++;
+        }
+
+        // שליחת הודעה לשרת
+        async function sendMessage() {
+            const message = chatInput.value.trim();
+            if (!message) return;
+
+            // עדכון פעילות
+            updateActivity();
+
+            // הוספת הודעה של המשתמש
+            addMessage(message, true);
+            chatInput.value = '';
+            
+            // הצגת אינדיקטור טעינה
+            loading.style.display = 'block';
+            sendButton.disabled = true;
+            
+            try {
+                const response = await fetch('/api/chat', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ 
+                        message: message,
+                        sessionId: sessionId
+                    })
+                });
+                
+                const data = await response.json();
+                
+                // הסרת אינדיקטור טעינה
+                loading.style.display = 'none';
+                sendButton.disabled = false;
+                
+                if (response.ok) {
+                    // אנימציית טעינה קצרה לפני התשובה
+                    setTimeout(() => {
+                        if (data.isMultiple && Array.isArray(data.response)) {
+                            // שליחת מספר הודעות קצרות עם הפסקות
+                            data.response.forEach((msg, index) => {
+                                setTimeout(() => {
+                                    addMessage(msg);
+                                    if (index === data.response.length - 1) {
+                                        sendRandomEncouragement();
+                                    }
+                                }, index * 800); // הפסקה קצרה יותר בין הודעות
+                            });
+                        } else {
+                            addMessage(data.response);
+                            sendRandomEncouragement();
+                        }
+                    }, 500);
+                } else {
+                    addMessage('סליחה, יש לי עומס רגע... 🤔 נסה שוב בבקשה!');
+                }
+            } catch (error) {
+                loading.style.display = 'none';
+                sendButton.disabled = false;
+                addMessage('סליחה, יש בעיה ברשת... 📶 נסה שוב בעוד רגע!');
+                console.error('Error:', error);
+            }
+        }
+
+        // אירועים
+        sendButton.addEventListener('click', sendMessage);
+        chatInput.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                sendMessage();
+            }
+        });
+
+        // עדכון פעילות בזמן הקלדה
+        chatInput.addEventListener('input', updateActivity);
+
+        // בדיקת פעילות כל 10 שניות
+        setInterval(checkActivity, 10000);
+
+        // מיקוד בשדה הקלט
+        chatInput.focus();
+
+        // שליחת תסריט פתיחה אוטומטי בתחילת שיחה
+        function sendOpeningScript() {
+            const nameFromProfile = null; // אין לנו שם לקוח מהלקוח עדיין בצד לקוח
+            openingScript.forEach((fn, idx) => {
+                setTimeout(() => addMessage(fn(nameFromProfile)), idx * 700);
+            });
+        }
+
+        // שלח פתיחה מיד עם טעינת הדף
+        sendOpeningScript();
+    </script>
+</body>
+</html>

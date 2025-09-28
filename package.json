@@ -1,0 +1,32 @@
+{
+  "name": "dvir-basson-chat",
+  "version": "1.0.0",
+  "description": "דביר בסון - מאמן אומנויות לחימה - בוט צ'אט",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server_simple.js",
+    "dev": "nodemon server_simple.js"
+  },
+  "keywords": [
+    "chatbot",
+    "martial-arts",
+    "hebrew"
+  ],
+  "author": "Dvir Basson",
+  "license": "MIT",
+  "dependencies": {
+    "@whiskeysockets/baileys": "^7.0.0-rc.3",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "node-telegram-bot-api": "^0.66.0",
+    "openai": "^4.20.1",
+    "puppeteer": "^24.22.0",
+    "qrcode": "^1.5.4",
+    "qrcode-terminal": "^0.12.0",
+    "sqlite3": "^5.1.7",
+    "whatsapp-web.js": "^1.27.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  }
+}
