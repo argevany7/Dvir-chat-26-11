@@ -228,9 +228,9 @@
 
         // הודעות ממוקדות מכירות
         const openingScript = [
-            (name) => `היי${name ? ' ' + name : ''}!`,
-            () => `מדבר דביר בסון, מאמן אומנויות לחימה.`,
-            () => `חוזר אליך בהמשך לפרטים שהשארת לנו, אשמח לשמוע קצת יותר כדי להכווין אותך טוב יותר.`,
+            (name) => `היי${name ? ' ' + name : ''}`,
+            () => `מדבר דביר בסון, מאמן אומנויות לחימה`,
+            () => `חוזר אליך בהמשך לפרטים שהשארת, אשמח לשמוע קצת יותר כדי להכווין אותך טוב יותר`,
             () => `עבור מי האימונים?`,
             () => `מה הגיל של מי שהאימונים עבורו?`,
             () => `האם יש רקע קודם באומנויות לחימה?`
@@ -348,12 +348,12 @@
                         }
                     }, 500);
                 } else {
-                    addMessage('סליחה, יש לי עומס רגע... 🤔 נסה שוב בבקשה!');
+                            addMessage('סליחה, יש עומס רגע 🤔 נסה שוב בבקשה');
                 }
             } catch (error) {
                 loading.style.display = 'none';
                 sendButton.disabled = false;
-                addMessage('סליחה, יש בעיה ברשת... 📶 נסה שוב בעוד רגע!');
+                addMessage('סליחה, יש בעיה ברשת 📶 נסה שוב בעוד רגע');
                 console.error('Error:', error);
             }
         }
