@@ -185,3 +185,4 @@ cp dvir_basson_clients.db backup_$(date +%Y%m%d).db
 
 _עודכן לאחרונה: 5 באוקטובר 2025_
 
+

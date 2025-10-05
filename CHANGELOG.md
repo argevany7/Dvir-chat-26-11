@@ -195,3 +195,4 @@ CREATE TABLE chat_summaries (
 _נוצר ב-5 באוקטובר 2025_  
 _Powered by GPT-4 & Claude_
 
+
