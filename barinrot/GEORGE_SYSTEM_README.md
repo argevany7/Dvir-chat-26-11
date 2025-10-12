@@ -265,3 +265,4 @@ const dvirNumber = '972559925657@c.us';
 **Powered by GPT-4 🚀**
 
 
+

@@ -271,6 +271,9 @@ async function loadConversationHistory(sessionId) {
                 if (err) {
                     console.error('❌ שגיאה בטעינת היסטוריה:', err.message);
                     resolve([]);
+                } else if (!rows || !Array.isArray(rows)) {
+                    console.log('📚 אין היסטוריה קודמת');
+                    resolve([]);
                 } else {
                     const history = rows.map(row => ({
                         role: row.message_role,
@@ -287,7 +290,7 @@ async function loadConversationHistory(sessionId) {
 // GPT PROMPT BUILDER
 // ===============================
 
-function buildGeorgeSystemPrompt() {
+function buildGeorgeSystemPrompt(hasConversationHistory = false, clientName = null) {
     const now = new Date();
     const currentDateTime = now.toLocaleString('he-IL', {
         timeZone: 'Asia/Jerusalem',
@@ -312,9 +315,16 @@ ${georgePrompt.core_instructions.map((inst, i) => `${i+1}. ${inst}`).join('\n')}
 === זרימת שיחה ===
 
 פתיחה:
-- אם הלקוח מכיר את דביר: "${georgePrompt.conversation_flow.opening.if_client_knows_dvir}"
+${hasConversationHistory ? 
+`⚠️ חשוב! הלקוח הזה כבר שוחח איתך בעבר - אל תציג את עצמך שוב!
+- אם זיהית את השם מההיסטוריה: "היי ${clientName || '[שם]'}! מה נשמע? יש משהו שתרצה לשאול? 😊"
+- אם אין שם בהיסטוריה: "היי! מה נשמע? איך אפשר לעזור? 😊"
+- תהיה חברי וקליל, כאילו אתם כבר מכירים
+- אל תגיד "אני ג'ורג'" או תציג את עצמך שוב` 
+: 
+`- אם הלקוח מכיר את דביר: "${georgePrompt.conversation_flow.opening.if_client_knows_dvir}"
 - אם זה קשר קר: "${georgePrompt.conversation_flow.opening.if_cold_contact}"
-- ${georgePrompt.conversation_flow.opening.rules.join('\n- ')}
+- ${georgePrompt.conversation_flow.opening.rules.join('\n- ')}`}
 
 איסוף מידע (בסדר העדיפות):
 ${georgePrompt.conversation_flow.information_gathering.priority_order.map((item, i) => `${i+1}. ${item}`).join('\n')}
@@ -435,28 +445,71 @@ ${Object.entries(georgePrompt.special_rules).map(([key, rule]) => `- ${rule}`).j
 }
 
 // ===============================
-// PAYMENT DETECTION
+// PAYMENT DETECTION - GPT BASED
 // ===============================
 
-function detectPaymentConfirmation(message) {
+function hasPaymentKeywords(message) {
     const lowerMessage = message.toLowerCase().trim();
+    const keywords = georgePrompt.payment_detection.keywords_for_gpt_check;
     
-    const clearPaymentPatterns = georgePrompt.payment_detection.clear_phrases.map(
-        phrase => new RegExp(phrase, 'i')
-    );
-    
-    const unclearPaymentPatterns = georgePrompt.payment_detection.unclear_phrases.map(
-        phrase => new RegExp(`^${phrase}$`, 'i')
-    );
-    
-    const isClear = clearPaymentPatterns.some(pattern => pattern.test(lowerMessage));
-    const isUnclear = unclearPaymentPatterns.some(pattern => pattern.test(lowerMessage));
-    
-    return {
-        detected: isClear || isUnclear,
-        isClear: isClear,
-        isUnclear: isUnclear
-    };
+    return keywords.some(keyword => lowerMessage.includes(keyword.toLowerCase()));
+}
+
+async function detectPaymentWithGPT(message, conversationHistory) {
+    try {
+        console.log('🤔 בודק עם GPT האם זה אישור תשלום...');
+        
+        // בדיקת בטיחות
+        if (!conversationHistory || !Array.isArray(conversationHistory)) {
+            console.log('⚠️ אין היסטוריית שיחה - מניח שזו הודעה ראשונה');
+            conversationHistory = [];
+        }
+        
+        // בניית הקשר השיחה
+        const contextMessages = conversationHistory.slice(-4).map(msg => 
+            `${msg.role === 'user' ? 'לקוח' : 'ג\'ורג\''}: ${msg.content}`
+        ).join('\n');
+        
+        const analysisPrompt = `אתה מומחה בניתוח שיחות מכירה. תפקידך לזהות האם הלקוח אישר שביצע תשלום.
+
+הקשר השיחה האחרונה:
+${contextMessages}
+
+ההודעה האחרונה מהלקוח:
+"${message}"
+
+שאלה: האם הלקוח אישר בהודעה האחרונה שהוא ביצע תשלום/שילם?
+
+⚠️ חשוב מאוד:
+- אם הלקוח אומר "שילמתי", "שולם", "ביצעתי תשלום", "הכסף הועבר", "התשלום בוצע" - זה אישור תשלום ✅
+- אם הלקוח שואל שאלה כמו "מה אם שילמתי כבר בעבר?" - זה לא אישור תשלום ❌
+- אם הלקוח מדבר בעתיד כמו "אשלם מחר" - זה לא אישור תשלום ❌
+- אם הלקוח מספר על משהו שקרה בעבר לא קשור ("פעם שילמתי למאמן אחר") - זה לא אישור תשלום ❌
+- אם הלקוח אומר "סגרתי" או "עדכן" או "מוכן" בלבד ללא הקשר ברור - זה לא אישור תשלום ❌
+
+השב **רק** במילה אחת: YES או NO`;
+
+        const completion = await openai.chat.completions.create({
+            model: "gpt-4o-mini",  // חסכוני יותר למשימה פשוטה
+            messages: [{
+                role: "system",
+                content: analysisPrompt
+            }],
+            temperature: 0,
+            max_tokens: 10
+        });
+        
+        const response = completion.choices[0].message.content.trim().toUpperCase();
+        const isPayment = response === 'YES';
+        
+        console.log(isPayment ? '✅ GPT אישר: זה תשלום' : '❌ GPT קבע: זה לא תשלום');
+        
+        return isPayment;
+        
+    } catch (error) {
+        console.error('❌ שגיאה בזיהוי תשלום עם GPT:', error.message);
+        return false;
+    }
 }
 
 // ===============================
@@ -468,6 +521,12 @@ async function analyzeConversationAfterPayment(sessionId, conversationHistory) {
         console.log('📊 מנתח שיחה אחרי תשלום...');
         
         const phone = sessionId.replace('@c.us', '');
+        
+        // בדיקת בטיחות
+        if (!conversationHistory || !Array.isArray(conversationHistory)) {
+            console.error('❌ אין היסטוריית שיחה לניתוח');
+            return null;
+        }
         
         // בניית הפרומפט לניתוח
         const analysisPrompt = `אתה מנתח מומחה לשיחות מכירה. נתח את השיחה הבאה וחלץ מידע מובנה.
@@ -619,28 +678,40 @@ async function processMessage(message, sessionId) {
     // יצירה או טעינת לקוח
     await getOrCreateClient(sessionId);
 
-    // זיהוי תשלום
-    const paymentDetection = detectPaymentConfirmation(message);
-    
-    if (paymentDetection.isClear) {
-        console.log('💰 תשלום זוהה! מתחיל ניתוח שיחה...');
+    // בדיקה ראשונית: האם יש מילות מפתח של תשלום?
+    if (hasPaymentKeywords(message)) {
+        console.log('🔍 זוהו מילות מפתח של תשלום - בודק עם GPT...');
         
-        // טעינת כל ההיסטוריה
-        const conversationHistory = await loadConversationHistory(sessionId);
-        conversationHistory.push({ role: 'user', content: message });
+        // טעינת היסטוריה לקונטקסט
+        let conversationHistory = await loadConversationHistory(sessionId);
         
-        // ניתוח עם GPT
-        const analysis = await analyzeConversationAfterPayment(sessionId, conversationHistory);
+        // וידוא שזה array (בדיקת בטיחות נוספת)
+        if (!conversationHistory || !Array.isArray(conversationHistory)) {
+            console.log('⚠️ היסטוריה לא תקינה - מאתחל array ריק');
+            conversationHistory = [];
+        }
         
-        if (analysis) {
-            // שמירה למאגר
-            await saveAnalysisToDatabase(sessionId, analysis);
+        // בדיקה מעמיקה עם GPT
+        const isPayment = await detectPaymentWithGPT(message, conversationHistory);
+        
+        if (isPayment) {
+            console.log('💰 תשלום אושר! מתחיל ניתוח שיחה ושליחה לדביר...');
             
-            // שליחה לדביר
-            await sendSummaryToDvir(analysis);
+            // הוסף את ההודעה האחרונה להיסטוריה
+            conversationHistory.push({ role: 'user', content: message });
             
-            // תשובה ללקוח
-            const response = `מעולה! קיבלתי את אישור התשלום 🎉
+            // ניתוח עם GPT
+            const analysis = await analyzeConversationAfterPayment(sessionId, conversationHistory);
+            
+            if (analysis) {
+                // שמירה למאגר
+                await saveAnalysisToDatabase(sessionId, analysis);
+                
+                // שליחה לדביר
+                await sendSummaryToDvir(analysis);
+                
+                // תשובה ללקוח
+                const response = `מעולה! קיבלתי את אישור התשלום 🎉
 
 המקום שלך שמור לאימון ב${analysis.appointmentDateAbsolute || analysis.appointmentDate} בשעה ${analysis.appointmentTime}.
 
@@ -650,21 +721,36 @@ async function processMessage(message, sessionId) {
 🎥 סרטון הגעה: https://youtube.com/shorts/_Bk2vYeGQTQ?si=n1wgv8-3t7_hEs45
 
 נתראה שם! 😊`;
-            
-            await saveConversation(sessionId, 'user', message);
-            await saveConversation(sessionId, 'assistant', response);
-            
-            return response;
+                
+                await saveConversation(sessionId, 'user', message);
+                await saveConversation(sessionId, 'assistant', response);
+                
+                return response;
+            }
+        } else {
+            console.log('ℹ️ לא זוהה כאישור תשלום - ממשיך לטיפול רגיל');
         }
     }
 
     // שיחה רגילה - GPT מטפל
     const conversationHistory = await loadConversationHistory(sessionId);
     
+    // בדיקה אם יש שם בהיסטוריה
+    const phone = sessionId.replace('@c.us', '');
+    const clientInfo = await new Promise((resolve) => {
+        db.get(`SELECT name FROM clients WHERE phone = ?`, [phone], (err, row) => {
+            if (err || !row) resolve(null);
+            else resolve(row);
+        });
+    });
+    
+    const hasHistory = conversationHistory.length > 0;
+    const clientName = clientInfo?.name || null;
+    
     const messages = [
         {
             role: "system",
-            content: buildGeorgeSystemPrompt()
+            content: buildGeorgeSystemPrompt(hasHistory, clientName)
         },
         ...conversationHistory,
         {
@@ -874,5 +960,6 @@ app.listen(PORT, () => {
     console.log('📱 לחיבור ווטסאפ: http://localhost:' + PORT + '/qr');
     console.log('🤖 ג\'ורג\' - עוזר דביר בסון מוכן לפעולה!');
 });
+
 
 

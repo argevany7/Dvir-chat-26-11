@@ -4,8 +4,8 @@
   "description": "דביר בסון - מאמן אומנויות לחימה - בוט צ'אט",
   "main": "server.js",
   "scripts": {
-    "start": "node server_simple.js",
-    "dev": "nodemon server_simple.js",
+    "start": "node server.js",
+    "dev": "nodemon server.js",
     "kill": "./kill-server.sh",
     "stop": "./kill-server.sh",
     "clean-db": "node clean_database.js",

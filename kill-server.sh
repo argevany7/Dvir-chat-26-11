@@ -5,14 +5,14 @@
 
 echo "🔍 מחפש תהליכים של הפרויקט..."
 
-# חיפוש תהליכים לפי שם הקובץ
-PIDS=$(ps aux | grep "server_simple.js" | grep -v grep | awk '{print $2}')
+# חיפוש תהליכים לפי שם הקובץ (כולל server.js, server_new.js)
+PIDS=$(ps aux | grep -E "server\.js|server_new\.js" | grep -v grep | awk '{print $2}')
 
 if [ -z "$PIDS" ]; then
-    echo "❌ לא נמצאו תהליכים פעילים של server_simple.js"
+    echo "❌ לא נמצאו תהליכים פעילים של server.js"
 else
     echo "🎯 נמצאו התהליכים הבאים:"
-    ps aux | grep "server_simple.js" | grep -v grep
+    ps aux | grep -E "server\.js|server_new\.js" | grep -v grep
     
     echo "⏹️  עוצר תהליכים..."
     for PID in $PIDS; do
@@ -92,12 +92,8 @@ if [ ! -z "$CHROME_PIDS" ]; then
     done
 fi
 
-# ניקוי קבצים זמניים
-echo "🧹 מנקה קבצים זמניים..."
-if [ -d "/tmp/chrome-user-data" ]; then
-    rm -rf /tmp/chrome-user-data
-    echo "🗑️  נוקה תיקיית Chrome זמנית"
-fi
+# הערה: לא מוחקים את /tmp/chrome-user-data כדי לשמור על חיבור הווטסאפ
+# אם תרצה להתנתק מווטסאפ ולהתחבר מחדש, מחק ידנית: rm -rf /tmp/chrome-user-data
 
 echo "✅ הפרויקט נעצר בהצלחה!"
 echo "💡 כדי להפעיל שוב: npm start או npm run dev"

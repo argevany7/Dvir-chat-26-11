@@ -53,50 +53,16 @@ function initializeDatabase() {
         FOREIGN KEY (client_phone) REFERENCES clients (phone)
     )`);
     
-    // טבלת appointments - עם appointment_time
-    db.run(`CREATE TABLE IF NOT EXISTS appointments (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        client_phone TEXT,
-        appointment_date TEXT,
-        appointment_time TEXT,
-        appointment_type TEXT,
-        status TEXT DEFAULT 'scheduled',
-        payment_confirmed BOOLEAN DEFAULT FALSE,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (client_phone) REFERENCES clients (phone)
-    )`);
-    
-    // טבלת סיכומים - summary_data (לא summary_json)
+    // טבלת סיכומים - JSON מהסיכום של GPT
     db.run(`CREATE TABLE IF NOT EXISTS chat_summaries (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         client_phone TEXT,
-        summary_data TEXT,
+        summary_json TEXT,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (client_phone) REFERENCES clients (phone)
     )`);
     
     console.log('✅ טבלאות נוצרו בהצלחה');
-    
-    // מיגרציות - הוספת עמודות חסרות אם קיימות
-    const migrations = [
-        { table: 'clients', column: 'appointment_time', type: 'TEXT' },
-        { table: 'clients', column: 'payment_confirmed', type: 'BOOLEAN DEFAULT FALSE' },
-        { table: 'appointments', column: 'appointment_time', type: 'TEXT' }
-    ];
-    
-    migrations.forEach(({ table, column, type }) => {
-        db.run(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`, (err) => {
-            if (err) {
-                if (err.message.includes('duplicate column')) {
-                    console.log(`ℹ️ העמודה ${column} כבר קיימת ב-${table}`);
-                } else {
-                    console.error(`⚠️ שגיאה בהוספת ${column} ל-${table}:`, err.message);
-                }
-            } else {
-                console.log(`✅ נוספה עמודה ${column} ל-${table}`);
-            }
-        });
-    });
 }
 
 // ===============================
@@ -180,7 +146,39 @@ whatsappClient.on('error', (error) => {
 // HELPER FUNCTIONS
 // ===============================
 
-// פונקציות שעות פעילות הוסרו - ג'ורג' זמין 24/7!
+function isWorkingHours() {
+    const now = new Date();
+    const dayOfWeek = now.getDay();
+    const hour = now.getHours();
+    
+    // Saturday - no response
+    if (dayOfWeek === 6) return false;
+    
+    // Sunday to Thursday - 7:00 to 23:00
+    if (dayOfWeek >= 0 && dayOfWeek <= 4) {
+        return hour >= 7 && hour < 23;
+    }
+    
+    // Friday - 7:00 to 16:00
+    if (dayOfWeek === 5) {
+        return hour >= 7 && hour < 16;
+    }
+    
+    return false;
+}
+
+function getWorkingHoursMessage() {
+    const now = new Date();
+    const dayOfWeek = now.getDay();
+    
+    if (dayOfWeek === 6) {
+        return 'שבת שלום 🙏\nאני זמין לענות על הודעות מיום ראשון עד חמישי בין השעות 7:00-23:00, ובימי שישי עד 16:00.\nאשיב במהלך שעות הפעילות';
+    } else if (dayOfWeek === 5 && now.getHours() >= 16) {
+        return 'שבת שלום 🙏\nאני זמין לענות על הודעות עד 16:00 בימי שישי.\nאשיב ביום ראשון החל מ-7:00 בבוקר';
+    } else {
+        return 'היי 😊\nאני זמין לענות על הודעות בין השעות 7:00-23:00 מיום ראשון עד חמישי, ובימי שישי עד 16:00.\nאשיב במהלך שעות הפעילות';
+    }
+}
 
 // ===============================
 // DATABASE FUNCTIONS
@@ -273,6 +271,9 @@ async function loadConversationHistory(sessionId) {
                 if (err) {
                     console.error('❌ שגיאה בטעינת היסטוריה:', err.message);
                     resolve([]);
+                } else if (!rows || !Array.isArray(rows)) {
+                    console.log('📚 אין היסטוריה קודמת');
+                    resolve([]);
                 } else {
                     const history = rows.map(row => ({
                         role: row.message_role,
@@ -290,32 +291,6 @@ async function loadConversationHistory(sessionId) {
 // ===============================
 
 function buildGeorgeSystemPrompt(hasConversationHistory = false, clientName = null) {
-    // בדיקת תקינות של georgePrompt
-    if (!georgePrompt) {
-        console.error('❌ georgePrompt לא נטען כהלכה - הוא null או undefined');
-        throw new Error('georgePrompt is null or undefined');
-    }
-    
-    // בדיקת כל השדות החיוניים
-    const requiredFields = [
-        'character',
-        'about_dvir',
-        'core_instructions',
-        'conversation_flow',
-        'dvir_gym_knowledge',
-        'sales_tactics',
-        'communication_style',
-        'payment_detection',
-        'special_rules'
-    ];
-    
-    for (const field of requiredFields) {
-        if (!georgePrompt[field]) {
-            console.error(`❌ השדה georgePrompt.${field} חסר`);
-            throw new Error(`Missing required field: georgePrompt.${field}`);
-        }
-    }
-
     const now = new Date();
     const currentDateTime = now.toLocaleString('he-IL', {
         timeZone: 'Asia/Jerusalem',
@@ -333,44 +308,6 @@ function buildGeorgeSystemPrompt(hasConversationHistory = false, clientName = nu
 ${georgePrompt.character.description}
 
 תאריך ושעה נוכחיים: ${currentDateTime} (Asia/Jerusalem)
-
-=== אודות דביר בסון ===
-רקע: ${georgePrompt.about_dvir.background}
-שירות צבאי: ${georgePrompt.about_dvir.military_service}
-כישורים: ${georgePrompt.about_dvir.qualifications}
-מיקוד בהוראה: ${georgePrompt.about_dvir.teaching_focus}
-
-גישה לעבודה עם ילדים:
-פילוסופיה: ${georgePrompt.about_dvir.approach_with_kids.philosophy}
-
-גבולות:
-- נוקשים: ${georgePrompt.about_dvir.approach_with_kids.boundaries.strict_boundaries}
-- גמישים: ${georgePrompt.about_dvir.approach_with_kids.boundaries.flexible_approach}
-
-טריקים לקשב:
-${georgePrompt.about_dvir.approach_with_kids.attention_tricks.methods.map(m => `- ${m}`).join('\n')}
-${georgePrompt.about_dvir.approach_with_kids.attention_tricks.note}
-
-טיפול בהתפרצויות:
-- ילד מתוסכל: ${georgePrompt.about_dvir.approach_with_kids.dealing_with_outbursts.frustrated_child}
-- ילד לא מכבד: ${georgePrompt.about_dvir.approach_with_kids.dealing_with_outbursts.disrespectful_child}
-- עיקרון: ${georgePrompt.about_dvir.approach_with_kids.dealing_with_outbursts.principle}
-
-בניית ביטחון עצמי:
-הגדרה: ${georgePrompt.about_dvir.approach_with_kids.building_confidence.definition}
-4 דרכים לבניית ביטחון:
-${georgePrompt.about_dvir.approach_with_kids.building_confidence.four_ways.map(w => `- ${w}`).join('\n')}
-מיקוד: ${georgePrompt.about_dvir.approach_with_kids.building_confidence.focus}
-
-תקשורת עם הורים:
-${georgePrompt.about_dvir.approach_with_kids.parent_communication.methods.map(m => `- ${m}`).join('\n')}
-
-חינוך לגבי אלימות:
-מסר מרכזי: ${georgePrompt.about_dvir.approach_with_kids.violence_education.main_message}
-מתי להשתמש:
-${georgePrompt.about_dvir.approach_with_kids.violence_education.when_to_use.map(w => `- ${w}`).join('\n')}
-ציטוט מפורסם: ${georgePrompt.about_dvir.approach_with_kids.violence_education.famous_quote}
-מתי נדבר על זה: ${georgePrompt.about_dvir.approach_with_kids.violence_education.when_discussed}
 
 === הוראות ליבה ===
 ${georgePrompt.core_instructions.map((inst, i) => `${i+1}. ${inst}`).join('\n')}
@@ -392,62 +329,6 @@ ${hasConversationHistory ?
 איסוף מידע (בסדר העדיפות):
 ${georgePrompt.conversation_flow.information_gathering.priority_order.map((item, i) => `${i+1}. ${item}`).join('\n')}
 
-⚠️ **חשוב מאוד - שם מלא:**
-- **אל תבקש שם מלא בתחילת השיחה!**
-- שם מלא יתבקש **רק לאחר** ששלחת קישור תשלום
-- לפני שליחת הקישור - מספיק שם פרטי בלבד (למשל: "משה")
-- אחרי ששלחת קישור תשלום תגיד: "אגב, מה השם המלא שלך/של הילד? צריך את זה לרישום 😊"
-- זה נראה יותר טבעי ופחות פולשני
-
-⚠️⚠️⚠️ כללי זהב לפיתוח שיחה ובניית קשר - קריטי! ⚠️⚠️⚠️
-
-🎯 **המטרה העליונה: להתחבב על הלקוח ולבנות קשר אמיתי!**
-
-1. **אל תמהר לעסקה!** אל תציע אימון ניסיון אלא אם:
-   - יש לך לפחות 4-5 הודעות עם הלקוח
-   - הלקוח שיתף מידע אישי (סיפר על עצמו/ילד/מטרות)
-   - הלקוח הראה עניין ואנרגיה חיובית
-   - אתה מרגיש שבניתם קשר
-
-2. **פתח שיחה עמוקה:**
-   - שאל שאלות פתוחות: "מה הביא אותך לחשוב על אומנויות לחימה?"
-   - אם מדובר בילד: "ספר לי קצת עליו/ה - איזה טיפוס הוא/היא?"
-   - אם יש ניסיון: "איזה חלק אהבת הכי הרבה?" "למה החלטת להפסיק?"
-   - תתעניין במצב הרגשי: "איך הוא/את מרגיש/ה לאחרונה?"
-
-3. **הראה אמפתיה אמיתית:**
-   - אם הלקוח שיתף קושי (עצבים, בריונות, חוסר ביטחון): 
-     * "שומע אותך לגמרי, זה לא קל..."
-     * "אני מבין למה זה חשוב לך"
-     * שתף איך דביר עוזר בדיוק במצבים כאלה
-   - אל תמהר לפתרון - **קודם הקשבה, אחר כך פתרון**
-
-4. **אם הלקוח לא דברן - תפתח אותו:**
-   - "אני מרגיש שיש פה משהו חשוב... תספר לי יותר?"
-   - "מה הכי מדאיג אותך בקשר לזה?"
-   - "איך אתה רואה את זה עוזר לך/לילד?"
-   - שתף סיפורים קצרים: "היה לי לקוח שהרגיש בדיוק ככה..."
-
-5. **בנה מתח חיובי:**
-   - "וואו, זה ממש מעניין!"
-   - "אני כבר רואה איך האימונים יכולים להתאים בול"
-   - "דביר אוהב ממש לעבוד עם מקרים כאלה"
-
-6. **רק אחרי שהשיחה התפתחה - הצע אימון:**
-   - "אחרי מה ששמעתי, אני חושב שאימון ניסיון יכול להיות מעולה עבורכם"
-   - "מה דעתך שנקבע אימון ניסיון ותראה בעצמך?"
-   
-7. **שימוש בשם הלקוח - כלל ברזל:**
-   - השתמש בשם **רק פעם אחת** - מיד אחרי שהוא נתן לך את השם
-   - דוגמה: "נעים להכיר, משה! איזה גיל אתה מדבר?"
-   - **אחרי זה - לעולם לא עוד פעם!** זה נשמע מלאכותי ומוזר
-   - אל תגיד "משה, מה דעתך..." או "נהדר משה!" - זה AI talk!
-
-8. **תן ללקוח להרגיש שהוא הכי חשוב:**
-   - אל תמהר - קח את הזמן לשמוע
-   - תשאל שאלות המשך על מה שהוא אמר
-   - הראה שאתה באמת מקשיב ולא רק ממתין לספר על האימונים
-
 מעקב סטטוס לידים:
 - Cold Lead (ליד קר): ${georgePrompt.conversation_flow.information_gathering.lead_status_tracking.cold_lead}
 - Warm Lead (ליד חם): ${georgePrompt.conversation_flow.information_gathering.lead_status_tracking.warm_lead}
@@ -457,24 +338,12 @@ ${georgePrompt.conversation_flow.information_gathering.priority_order.map((item,
 סגירת אימון ניסיון:
 ${georgePrompt.conversation_flow.closing_trial_session.steps.map((step, i) => `${i+1}. ${step}`).join('\n')}
 
-⚠️ חשוב מאוד - כללים לסגירת עסקה:
-${georgePrompt.conversation_flow.closing_trial_session.important_notes.map(note => `${note}`).join('\n')}
-
-⚠️ **סדר פעולות - קריטי:**
-1. הצע תאריכים ושעות
-2. הלקוח מאשר תאריך ושעה
-3. **שלח קישור תשלום**
-4. אחרי שליחת הקישור, **עכשיו בקש שם מלא:** "אגב, מה השם המלא שלך? צריך את זה לרישום 😊"
-5. הלקוח מספק שם מלא
-6. הלקוח משלם
-7. אישור ושליחת כתובת וסרטון הגעה
-
 === מידע על המכון של דביר ===
 
 מיקום:
 - כתובת: ${georgePrompt.dvir_gym_knowledge.location.address}
 - חניה: ${georgePrompt.dvir_gym_knowledge.location.parking}
-- סרטון הגעה (שלח רק את הקישור בשורה נפרדת): ${georgePrompt.dvir_gym_knowledge.location.directions_video}
+- סרטון הגעה: ${georgePrompt.dvir_gym_knowledge.location.directions_video}
 
 סוגי אימונים:
 1. ${georgePrompt.dvir_gym_knowledge.training_types.MMA.name}
@@ -515,7 +384,7 @@ ${georgePrompt.conversation_flow.closing_trial_session.important_notes.map(note 
 
 מתי להזכיר מחירים: ${georgePrompt.dvir_gym_knowledge.pricing.when_to_mention}
 
-קישורי תשלום (שלח רק את הקישור בשורה נפרדת, ללא טקסט נוסף):
+קישורי תשלום:
 - ילדים/נוער (10 ש"ח): ${georgePrompt.dvir_gym_knowledge.payment_links.kids_youth_10nis}
 - בוגרים (25 ש"ח): ${georgePrompt.dvir_gym_knowledge.payment_links.adults_25nis}
 
@@ -543,81 +412,29 @@ ${Object.entries(georgePrompt.sales_tactics.objection_handling).map(([key, obj])
     `- ${key}: ${obj.response}`
 ).join('\n')}
 
-=== כללי זהב לשיח אנושי וטבעי ===
-
-🎯 **המטרה: לדבר כמו אדם אמיתי, לא כמו בוט!**
-
-**1. פחות התלהבות מלאכותית:**
-   ❌ אל תגיד: "וואו!", "מעולה!", "יופי!", "נהדר!", "מושלם!"
-   ✅ במקום תגיד: "אוקיי", "בסדר", "אני שומע אותך", "מבין"
-   
-**2. סימני קריאה - השתמש במשורה:**
-   ❌ אל: "היי! שמח לעזור לך! איזה כיף!"
-   ✅ כן: "היי. שמח לעזור. מה מעניין אותך?"
-   - **מקסימום 1 סימן קריאה בכל הודעה!**
-   - רוב המשפטים יסתיימו בנקודה רגילה
-
-**3. אימוג'ים - לא יותר מדי:**
-   ❌ אל: "היי! 😊 איך אפשר לעזור? 🤗 אשמח מאוד! 💪"
-   ✅ כן: "היי. איך אפשר לעזור? 😊"
-   - **מקסימום 1 אימוג'י בכל הודעה**
-   - רק בסוף המשפט, לא באמצע
-
-**4. מילות מילוי - תשמע אנושי:**
-   ✅ השתמש: "אז...", "אוקיי...", "בכן", "הבנתי", "נשמע הגיוני"
-   - זה גורם לך להישמע כמו אדם אמיתי שחושב
-
-**5. משפטים קצרים:**
-   ❌ אל: "זה ממש מעולה ואני חושב שזה יהיה נהדר עבורך והאימונים האלה באמת מצוינים!"
-   ✅ כן: "זה יכול להתאים לך. האימונים טובים."
-   - 1-2 שורות מקסימום
-
-**6. הימנע ממילים מוגזמות:**
-   ❌ מילים אסורות: "ממש", "באמת", "מאוד מאוד", "סופר", "נורא"
-   ✅ דבר פשוט: "טוב" במקום "ממש טוב", "מעניין" במקום "סופר מעניין"
-
-**7. אל תחזור על עצמך:**
-   ❌ "מעולה! זה מעולה! ממש מעולה!"
-   ✅ "אוקיי, זה נשמע טוב"
-
-**8. תגובות טבעיות:**
-   - במקום "תודה על המידע" → "אוקיי, הבנתי"
-   - במקום "נהדר לשמוע!" → "נשמע טוב"
-   - במקום "כל הכבוד!" → "יפה"
-
-**9. אל תדחוף:**
-   ❌ "אז מה אתה אומר?? נקבע?? בוא נסגור את זה!!"
-   ✅ "מה אתה חושב? אם זה מתאים אפשר לקבוע"
-
-**10. שאלות - פשוט:**
-   ❌ "אז מה דעתך על זה? נשמע לך טוב? מה אתה חושב?"
-   ✅ "מה דעתך?"
-
----
-
-=== סגנון תקשורת (המשך) ===
-טון: רגוע, ידידותי, לא מתלהב מדי
-שפה: עברית פשוטה ובהירה
-פורמליות: ${georgePrompt.communication_style.formality}
-
-⚠️ שימוש בשם הלקוח:
-- השתמש בשם רק פעם אחת - מיד אחרי שהוא נתן לך אותו
-- אחרי זה - לעולם לא עוד פעם
-- זה נשמע מלאכותי ומוזר
-
-${georgePrompt.communication_style.no_formatting}
+=== סגנון תקשורת ===
+- טון: ${georgePrompt.communication_style.tone}
+- שפה: ${georgePrompt.communication_style.language}
+- פורמליות: ${georgePrompt.communication_style.formality}
+- מילים חיוביות: ${georgePrompt.communication_style.positive_words.join(', ')}
+- הימנע ממילים: ${georgePrompt.communication_style.avoid_words.join(', ')}
+- אימוג'ים: ${georgePrompt.communication_style.emojis}
+- ${georgePrompt.communication_style.no_formatting}
 
 === זיהוי תשלום ===
-המערכת משתמשת בבינה מלאכותית (GPT) לזיהוי אישורי תשלום בצורה הקשרית וחכמה.
-כאשר לקוח אומר "שילמתי" - המערכת מבינה את ההקשר ומאשרת את התשלום רק אם זה אישור אמיתי.
+ביטויים ברורים (פעולה מיידית):
+${georgePrompt.payment_detection.clear_phrases.join(', ')}
+
+ביטויים לא ברורים (שאל לאישור):
+${georgePrompt.payment_detection.unclear_phrases.join(', ')}
 
 === כללים מיוחדים ===
 ${Object.entries(georgePrompt.special_rules).map(([key, rule]) => `- ${rule}`).join('\n')}
 
-⚠️ חשוב: כאשר אתה שולח קישורים (תשלום, סרטון הגעה, וכו') - שלח רק את הקישור עצמו בשורה נפרדת, ללא טקסט תיאורי לפניו כמו "מצרף סרטון הגעה:" או "[סרטון הגעה]:" או "[קישור לתשלום]". פשוט שלח את הקישור.
-
-זמינות:
-- ${georgePrompt.dvir_gym_knowledge.working_hours.always_available}
+שעות פעילות:
+- ${georgePrompt.dvir_gym_knowledge.working_hours.sunday_thursday}
+- שישי: ${georgePrompt.dvir_gym_knowledge.working_hours.friday}
+- שבת: ${georgePrompt.dvir_gym_knowledge.working_hours.saturday}
 
 קישורים חברתיים:
 - פייסבוק: ${georgePrompt.dvir_gym_knowledge.social_links.facebook}
@@ -628,25 +445,19 @@ ${Object.entries(georgePrompt.special_rules).map(([key, rule]) => `- ${rule}`).j
 }
 
 // ===============================
-// PAYMENT DETECTION - GPT BASED (מנוע חשיבה חכם!)
+// PAYMENT DETECTION - GPT BASED
 // ===============================
 
 function hasPaymentKeywords(message) {
     const lowerMessage = message.toLowerCase().trim();
+    const keywords = georgePrompt.payment_detection.keywords_for_gpt_check;
     
-    // רשימה מלאה של מילות מפתח לזיהוי תשלום
-    const keywords = [
-        'שילם', 'תשלום', 'כסף', 'העבר', 'בוצע', 
-        'סגר', 'עדכן', 'מוכן', 'שלח', 'ביצע',
-        'שלמתי', 'שילמתי', 'העברתי', 'סגרתי'
-    ];
-    
-    return keywords.some(keyword => lowerMessage.includes(keyword));
+    return keywords.some(keyword => lowerMessage.includes(keyword.toLowerCase()));
 }
 
 async function detectPaymentWithGPT(message, conversationHistory) {
     try {
-        console.log('🤖 GPT מנתח את ההקשר לזיהוי תשלום...');
+        console.log('🤔 בודק עם GPT האם זה אישור תשלום...');
         
         // בדיקת בטיחות
         if (!conversationHistory || !Array.isArray(conversationHistory)) {
@@ -654,7 +465,7 @@ async function detectPaymentWithGPT(message, conversationHistory) {
             conversationHistory = [];
         }
         
-        // בניית הקשר השיחה (4 הודעות אחרונות)
+        // בניית הקשר השיחה
         const contextMessages = conversationHistory.slice(-4).map(msg => 
             `${msg.role === 'user' ? 'לקוח' : 'ג\'ורג\''}: ${msg.content}`
         ).join('\n');
@@ -679,7 +490,7 @@ ${contextMessages}
 השב **רק** במילה אחת: YES או NO`;
 
         const completion = await openai.chat.completions.create({
-            model: "gpt-4o-mini",
+            model: "gpt-4o-mini",  // חסכוני יותר למשימה פשוטה
             messages: [{
                 role: "system",
                 content: analysisPrompt
@@ -691,11 +502,7 @@ ${contextMessages}
         const response = completion.choices[0].message.content.trim().toUpperCase();
         const isPayment = response === 'YES';
         
-        if (isPayment) {
-            console.log('✅ GPT אישר: זה אישור תשלום אמיתי!');
-        } else {
-            console.log('❌ GPT קבע: זה לא אישור תשלום (אולי שאלה או הקשר אחר)');
-        }
+        console.log(isPayment ? '✅ GPT אישר: זה תשלום' : '❌ GPT קבע: זה לא תשלום');
         
         return isPayment;
         
@@ -715,6 +522,12 @@ async function analyzeConversationAfterPayment(sessionId, conversationHistory) {
         
         const phone = sessionId.replace('@c.us', '');
         
+        // בדיקת בטיחות
+        if (!conversationHistory || !Array.isArray(conversationHistory)) {
+            console.error('❌ אין היסטוריית שיחה לניתוח');
+            return null;
+        }
+        
         // בניית הפרומפט לניתוח
         const analysisPrompt = `אתה מנתח מומחה לשיחות מכירה. נתח את השיחה הבאה וחלץ מידע מובנה.
 
@@ -722,20 +535,18 @@ async function analyzeConversationAfterPayment(sessionId, conversationHistory) {
 ${conversationHistory.map(msg => `${msg.role}: ${msg.content}`).join('\n')}
 
 חלץ את המידע הבא ובנה JSON:
-1. fullName - שם מלא של הלקוח (אם צוין, אם לא: null)
-2. name - שם פרטי (אם לא צוין: "הלקוח")
-3. age - גיל (מספר, אם לא צוין: null)
-4. experience - ניסיון קודם באומנויות לחימה (אם לא צוין: "לא צוין")
-5. appointmentDate - תאריך האימון המתוכנן (אם לא צוין: "לא נקבע")
-6. appointmentTime - שעה של האימון (אם לא צוין: "לא נקבעה")
-7. appointmentDateAbsolute - המר תאריך יחסי (כמו "שני הקרוב") לתאריך מוחלט בפורמט DD/MM/YYYY (אם לא צוין: "לא נקבע")
+1. fullName - שם מלא של הלקוח (אם צוין)
+2. name - שם פרטי
+3. age - גיל (מספר)
+4. experience - ניסיון קודם באומנויות לחימה (טקסט חופשי)
+5. appointmentDate - תאריך האימון המתוכנן
+6. appointmentTime - שעה של האימון
+7. appointmentDateAbsolute - המר תאריך יחסי (כמו "שני הקרוב") לתאריך מוחלט בפורמט DD/MM/YYYY
 8. conversationSummary - סיכום השיחה ב-3 שורות מקסימום
-9. trainingType - סוג האימון (MMA / אגרוף תאילנדי, אם לא צוין: "לא צוין")
+9. trainingType - סוג האימון (MMA / אגרוף תאילנדי)
 10. phoneNumber - "${phone}"
 
 התאריך הנוכחי: ${new Date().toLocaleDateString('he-IL', {timeZone: 'Asia/Jerusalem'})}
-
-⚠️ חשוב: תמיד החזר את כל השדות, גם אם הערך הוא null או "לא צוין".
 
 החזר **רק** JSON תקין, ללא טקסט נוסף:`;
 
@@ -813,7 +624,7 @@ async function saveAnalysisToDatabase(sessionId, analysis) {
         const summaryJson = JSON.stringify(analysis, null, 2);
         
         // שמירת הסיכום
-        db.run(`INSERT INTO chat_summaries (client_phone, summary_data) VALUES (?, ?)`,
+        db.run(`INSERT INTO chat_summaries (client_phone, summary_json) VALUES (?, ?)`,
             [phone, summaryJson], function(err) {
             if (err) {
                 console.error('❌ שגיאה בשמירת סיכום:', err.message);
@@ -822,7 +633,7 @@ async function saveAnalysisToDatabase(sessionId, analysis) {
             }
         });
         
-        // עדכון מלא של פרטי הלקוח
+        // עדכון הלקוח
         db.run(`UPDATE clients SET 
                 full_name = ?,
                 name = ?,
@@ -846,87 +657,11 @@ async function saveAnalysisToDatabase(sessionId, analysis) {
             if (err) {
                 console.error('❌ שגיאה בעדכון לקוח:', err.message);
             } else {
-                console.log('✅ פרטי לקוח עודכנו - סטטוס: PAID');
+                console.log('✅ פרטי לקוח עודכנו');
             }
+            resolve();
         });
-        
-        // שמירת האפוינטמנט בטבלה נפרדת
-        const appointmentDate = analysis.appointmentDateAbsolute || analysis.appointmentDate;
-        const appointmentTime = analysis.appointmentTime;
-        const trainingType = analysis.trainingType || 'אימון ניסיון';
-        
-        db.run(`INSERT INTO appointments 
-                (client_phone, appointment_date, appointment_time, appointment_type, status, payment_confirmed, created_at) 
-                VALUES (?, ?, ?, ?, 'confirmed', TRUE, CURRENT_TIMESTAMP)`,
-            [phone, appointmentDate, appointmentTime, trainingType],
-            function(err) {
-                if (err) {
-                    console.error('❌ שגיאה בשמירת אפוינטמנט:', err.message);
-                } else {
-                    console.log('✅ אפוינטמנט נשמר בהצלחה:', appointmentDate, appointmentTime);
-                }
-                resolve();
-            });
     });
-}
-
-// ===============================
-// EXTRACT AND UPDATE CLIENT INFO
-// ===============================
-
-async function extractAndUpdateClientInfo(sessionId, userMessage, botResponse, conversationHistory) {
-    const phone = sessionId.replace('@c.us', '');
-    const updateFields = {};
-    
-    // חילוץ שם - אם הבוט אמר "נעים להכיר {שם}"
-    const nameMatch = botResponse.match(/נעים להכיר ([א-ת]+)/);
-    if (nameMatch && nameMatch[1]) {
-        updateFields.name = nameMatch[1];
-        console.log('📝 זיהוי שם:', nameMatch[1]);
-    }
-    
-    // חילוץ גיל - אם המשתמש ענה עם מספר בלבד או "בן/בת X"
-    const ageMatch = userMessage.match(/^(\d{1,2})$/) || userMessage.match(/בן\s*(\d{1,2})/) || userMessage.match(/בת\s*(\d{1,2})/);
-    if (ageMatch && ageMatch[1]) {
-        const age = parseInt(ageMatch[1]);
-        if (age >= 3 && age <= 80) {
-            updateFields.age = age;
-            console.log('📝 זיהוי גיל:', age);
-        }
-    }
-    
-    // חילוץ ניסיון - אם הבוט שאל על ניסיון והמשתמש ענה
-    if (conversationHistory.some(msg => msg.content.includes('ניסיון קודם'))) {
-        const experienceIndicators = ['שנה', 'שנתיים', 'שנים', 'חודש', 'חודשים', 'קראטה', 'ג\'ודו', 'קונג פו', 'טאיקוונדו', 'MMA', 'תאילנדי'];
-        if (experienceIndicators.some(indicator => userMessage.includes(indicator))) {
-            updateFields.experience = userMessage;
-            console.log('📝 זיהוי ניסיון:', userMessage);
-        } else if (userMessage.match(/^(לא|אין|ללא)$/i)) {
-            updateFields.experience = 'אין ניסיון קודם';
-            console.log('📝 זיהוי: אין ניסיון קודם');
-        }
-    }
-    
-    // אם יש שדות לעדכן - עדכן את הטבלה
-    if (Object.keys(updateFields).length > 0) {
-        const fields = Object.keys(updateFields);
-        const values = Object.values(updateFields);
-        
-        let query = `UPDATE clients SET updated_at = CURRENT_TIMESTAMP`;
-        fields.forEach(field => {
-            query += `, ${field} = ?`;
-        });
-        query += ` WHERE phone = ?`;
-        values.push(phone);
-        
-        db.run(query, values, function(err) {
-            if (err) {
-                console.error('❌ שגיאה בעדכון מידע לקוח:', err.message);
-            } else {
-                console.log(`✅ עודכנו ${fields.length} שדות עבור הלקוח`);
-            }
-        });
-    }
 }
 
 // ===============================
@@ -943,64 +678,62 @@ async function processMessage(message, sessionId) {
     // יצירה או טעינת לקוח
     await getOrCreateClient(sessionId);
 
-    // טעינת היסטוריה
-    let conversationHistory = await loadConversationHistory(sessionId);
-    
-    // וידוא שזה array (בדיקת בטיחות)
-    if (!conversationHistory || !Array.isArray(conversationHistory)) {
-        console.log('⚠️ היסטוריה לא תקינה - מאתחל array ריק');
-        conversationHistory = [];
-    }
-    
-    // פילטר ראשוני זול: רק אם יש מילות מפתח של תשלום
-    // זה חוסך כסף - לא שולחים כל הודעה ל-GPT
-    const hasPaymentHint = hasPaymentKeywords(message);
-    
-    if (hasPaymentHint) {
-        console.log('🔍 זוהו מילות מפתח של תשלום - שולח ל-GPT לבדיקה הקשרית...');
-    }
-    
-    // אם יש רמז לתשלום → בדיקה חכמה עם GPT (מנוע חשיבה!)
-    // GPT בודק את ההקשר ומחליט אם זה באמת תשלום
-    const isPayment = hasPaymentHint ? await detectPaymentWithGPT(message, conversationHistory) : false;
-    
-    if (isPayment) {
-        console.log('💰 תשלום אושר על ידי GPT! מתחיל ניתוח שיחה ושליחה לדביר...');
+    // בדיקה ראשונית: האם יש מילות מפתח של תשלום?
+    if (hasPaymentKeywords(message)) {
+        console.log('🔍 זוהו מילות מפתח של תשלום - בודק עם GPT...');
         
-        // הוסף את ההודעה האחרונה להיסטוריה
-        conversationHistory.push({ role: 'user', content: message });
+        // טעינת היסטוריה לקונטקסט
+        let conversationHistory = await loadConversationHistory(sessionId);
         
-        // ניתוח עם GPT
-        const analysis = await analyzeConversationAfterPayment(sessionId, conversationHistory);
+        // וידוא שזה array (בדיקת בטיחות נוספת)
+        if (!conversationHistory || !Array.isArray(conversationHistory)) {
+            console.log('⚠️ היסטוריה לא תקינה - מאתחל array ריק');
+            conversationHistory = [];
+        }
         
-        if (analysis) {
-            // שמירה למאגר
-            await saveAnalysisToDatabase(sessionId, analysis);
+        // בדיקה מעמיקה עם GPT
+        const isPayment = await detectPaymentWithGPT(message, conversationHistory);
+        
+        if (isPayment) {
+            console.log('💰 תשלום אושר! מתחיל ניתוח שיחה ושליחה לדביר...');
             
-            // שליחה לדביר
-            await sendSummaryToDvir(analysis);
+            // הוסף את ההודעה האחרונה להיסטוריה
+            conversationHistory.push({ role: 'user', content: message });
             
-            // תשובה ללקוח
-            const response = `מעולה! קיבלתי את אישור התשלום 🎉
+            // ניתוח עם GPT
+            const analysis = await analyzeConversationAfterPayment(sessionId, conversationHistory);
+            
+            if (analysis) {
+                // שמירה למאגר
+                await saveAnalysisToDatabase(sessionId, analysis);
+                
+                // שליחה לדביר
+                await sendSummaryToDvir(analysis);
+                
+                // תשובה ללקוח
+                const response = `מעולה! קיבלתי את אישור התשלום 🎉
 
 המקום שלך שמור לאימון ב${analysis.appointmentDateAbsolute || analysis.appointmentDate} בשעה ${analysis.appointmentTime}.
 
 דביר קיבל את הפרטים שלך ומחכה לראות אותך באימון!
 
 📍 כתובת: הרצוג 12, הרצליה
-
-https://youtube.com/shorts/_Bk2vYeGQTQ?si=n1wgv8-3t7_hEs45
+🎥 סרטון הגעה: https://youtube.com/shorts/_Bk2vYeGQTQ?si=n1wgv8-3t7_hEs45
 
 נתראה שם! 😊`;
-            
-            await saveConversation(sessionId, 'user', message);
-            await saveConversation(sessionId, 'assistant', response);
-            
-            return response;
+                
+                await saveConversation(sessionId, 'user', message);
+                await saveConversation(sessionId, 'assistant', response);
+                
+                return response;
+            }
+        } else {
+            console.log('ℹ️ לא זוהה כאישור תשלום - ממשיך לטיפול רגיל');
         }
     }
 
-    // שיחה רגילה - GPT מטפל (conversationHistory כבר נטען למעלה)
+    // שיחה רגילה - GPT מטפל
+    const conversationHistory = await loadConversationHistory(sessionId);
     
     // בדיקה אם יש שם בהיסטוריה
     const phone = sessionId.replace('@c.us', '');
@@ -1036,17 +769,13 @@ https://youtube.com/shorts/_Bk2vYeGQTQ?si=n1wgv8-3t7_hEs45
 
     console.log('📤 תשובה מ-GPT:', response);
 
-    // חילוץ מידע מהשיחה ועדכון הלקוח
-    await extractAndUpdateClientInfo(sessionId, message, response, conversationHistory);
-
     // עדכון סטטוס ליד לפי תוכן התשובה
     if (response.includes('letts.co.il/payment/')) {
         await updateClientLeadStatus(sessionId, 'hot');
         console.log('🔥 ליד עודכן ל-HOT (קיבל קישור תשלום)');
-    } else if (conversationHistory.length >= 4) {
-        // אם יש לפחות 4 הודעות (שיחה מפותחת), זה warm lead
+    } else if (conversationHistory.length > 2) {
+        // אם יש יותר מ-2 הודעות, זה warm lead
         await updateClientLeadStatus(sessionId, 'warm');
-        console.log('🔥 ליד עודכן ל-WARM (שיחה מפותחת)');
     }
 
     // שמירת ההודעות
@@ -1080,6 +809,14 @@ whatsappClient.on('message', async (message) => {
             return;
         }
         
+        // בדיקת שעות פעילות
+        if (!isWorkingHours()) {
+            const workingHoursMessage = getWorkingHoursMessage();
+            await message.reply(workingHoursMessage);
+            console.log('⏰ הודעה נשלחה מחוץ לשעות פעילות');
+            return;
+        }
+        
         console.log('✅ מעבד הודעה פרטית...');
         
         const sessionId = message.from;
@@ -1108,6 +845,13 @@ app.post('/api/chat', async (req, res) => {
         }
 
         console.log('📨 הודעה נכנסת מהווב:', message);
+
+        if (!isWorkingHours()) {
+            return res.json({ 
+                response: getWorkingHoursMessage(),
+                isMultiple: false
+            });
+        }
 
         const cleanResponse = await processMessage(message, sessionId);
 
@@ -1216,4 +960,6 @@ app.listen(PORT, () => {
     console.log('📱 לחיבור ווטסאפ: http://localhost:' + PORT + '/qr');
     console.log('🤖 ג\'ורג\' - עוזר דביר בסון מוכן לפעולה!');
 });
+
+
 

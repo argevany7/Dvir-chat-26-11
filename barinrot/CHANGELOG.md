@@ -1,5 +1,28 @@
 # 📋 יומן שינויים - מערכת ג'ורג'
 
+## 🔧 תיקון קריטי - 5 באוקטובר 2025 (אחה"צ)
+
+### 🐛 תיקון באגים
+**תיקון שגיאת "Cannot read properties of undefined (reading 'map')"**
+
+#### הבעיות שתוקנו:
+1. ❌ **שגיאה**: המערכת קרסה כשניסתה לעבד זיהוי תשלום ללא היסטוריית שיחה
+2. ❌ **שגיאה**: `.map()` נקרא על `conversationHistory` שהיה undefined במקרים מסוימים
+
+#### השיפורים:
+- ✅ הוספת בדיקות בטיחות ל-`detectPaymentWithGPT()`
+- ✅ הוספת בדיקות בטיחות ל-`analyzeConversationAfterPayment()`
+- ✅ הוספת בדיקות בטיחות ל-`loadConversationHistory()`
+- ✅ כל הפונקציות כעת מחזירות תמיד array (או array ריק) ולא undefined
+- ✅ לוגים ברורים יותר כשאין היסטוריית שיחה
+
+#### מיקומי התיקון:
+- `server_new.js` שורות 460-463: בדיקת בטיחות ב-`detectPaymentWithGPT`
+- `server_new.js` שורות 523-526: בדיקת בטיחות ב-`analyzeConversationAfterPayment`
+- `server_new.js` שורות 274-276: בדיקת בטיחות ב-`loadConversationHistory`
+
+---
+
 ## 🚀 גרסה 2.0 - 5 באוקטובר 2025
 
 ### ✨ שינויים מרכזיים
@@ -194,5 +217,6 @@ CREATE TABLE chat_summaries (
 
 _נוצר ב-5 באוקטובר 2025_  
 _Powered by GPT-4 & Claude_
+
 
 
