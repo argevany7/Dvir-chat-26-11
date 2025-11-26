@@ -1,0 +1,32 @@
+2025/10/23-15:10:46.167 4203 Creating DB /Users/arielargevany/Documents/דביר בסון - צאטבוט/.wwebjs_auth/session-test-followup/Default/Local Storage/leveldb since it was missing.
+2025/10/23-15:10:46.189 4203 Reusing MANIFEST /Users/arielargevany/Documents/דביר בסון - צאטבוט/.wwebjs_auth/session-test-followup/Default/Local Storage/leveldb/MANIFEST-000001
+2025/10/23-20:26:40.548 5577 Level-0 table #5: started
+2025/10/23-20:26:40.552 5577 Level-0 table #5: 18879 bytes OK
+2025/10/23-20:26:40.561 5577 Delete type=0 #3
+2025/10/24-02:04:36.234 487b Level-0 table #7: started
+2025/10/24-02:04:36.241 487b Level-0 table #7: 14823 bytes OK
+2025/10/24-02:04:36.250 487b Delete type=0 #4
+2025/10/24-05:23:00.031 5577 Level-0 table #9: started
+2025/10/24-05:23:00.037 5577 Level-0 table #9: 14876 bytes OK
+2025/10/24-05:23:00.046 5577 Delete type=0 #6
+2025/10/24-08:39:33.551 4b5b Level-0 table #11: started
+2025/10/24-08:39:33.557 4b5b Level-0 table #11: 14746 bytes OK
+2025/10/24-08:39:33.567 4b5b Delete type=0 #8
+2025/10/24-11:47:39.385 236b Level-0 table #13: started
+2025/10/24-11:47:39.392 236b Level-0 table #13: 14653 bytes OK
+2025/10/24-11:47:39.402 236b Delete type=0 #10
+2025/10/24-14:37:40.865 3193 Level-0 table #15: started
+2025/10/24-14:37:40.872 3193 Level-0 table #15: 14578 bytes OK
+2025/10/24-14:37:40.882 3193 Delete type=0 #12
+2025/10/24-14:37:40.885 236b Compacting 4@0 + 1@1 files
+2025/10/24-14:37:40.892 236b Generated table #16@0: 5 keys, 1734 bytes
+2025/10/24-14:37:40.892 236b Compacted 4@0 + 1@1 files => 1734 bytes
+2025/10/24-14:37:40.900 236b compacted to: files[ 0 1 1 0 0 0 0 ]
+2025/10/24-14:37:40.902 236b Delete type=2 #15
+2025/10/24-14:37:40.902 236b Delete type=2 #7
+2025/10/24-14:37:40.902 236b Delete type=2 #13
+2025/10/24-14:37:40.902 236b Delete type=2 #11
+2025/10/24-14:37:40.902 236b Delete type=2 #9
+2025/10/24-15:44:18.972 3a93 Level-0 table #18: started
+2025/10/24-15:44:18.979 3a93 Level-0 table #18: 14568 bytes OK
+2025/10/24-15:44:18.987 3a93 Delete type=0 #14

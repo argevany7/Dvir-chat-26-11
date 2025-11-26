@@ -1,0 +1,46 @@
+2025/10/23-15:18:32.310 4f495d Reusing MANIFEST /Users/arielargevany/Documents/דביר בסון - צאטבוט/chrome-user-data/Default/IndexedDB/https_web.whatsapp.com_0.indexeddb.leveldb/MANIFEST-000001
+2025/10/23-15:18:32.311 4f495d Recovering log #74
+2025/10/23-15:18:32.317 4f495d Reusing old log /Users/arielargevany/Documents/דביר בסון - צאטבוט/chrome-user-data/Default/IndexedDB/https_web.whatsapp.com_0.indexeddb.leveldb/000074.log 
+2025/10/23-15:18:32.317 4f495d Delete type=2 #75
+2025/10/23-15:18:32.317 4f495d Delete type=2 #72
+2025/10/23-15:18:33.788 4f496c Manual compaction at level-0 from '\x00'\x00\x00\x00' @ 72057594037927935 : 1 .. '\x00(\x00\x00\x00' @ 0 : 0; will stop at (end)
+2025/10/23-15:18:39.166 4f495d Level-0 table #79: started
+2025/10/23-15:18:39.169 4f495d Level-0 table #79: 468855 bytes OK
+2025/10/23-15:18:39.171 4f495d Delete type=0 #74
+2025/10/23-15:18:39.172 4f495d Manual compaction at level-0 from '\x00(\x00\x00\x00' @ 72057594037927935 : 1 .. '\x00)\x00\x00\x00' @ 0 : 0; will stop at (end)
+2025/10/23-15:18:39.676 4f495d Compacting 1@1 + 1@2 files
+2025/10/23-15:18:39.694 4f495d Generated table #80@1: 38986 keys, 1816081 bytes
+2025/10/23-15:18:39.694 4f495d Compacted 1@1 + 1@2 files => 1816081 bytes
+2025/10/23-15:18:39.695 4f495d compacted to: files[ 0 0 1 0 0 0 0 ]
+2025/10/23-15:18:39.695 4f495d Delete type=2 #76
+2025/10/23-15:18:39.695 4f495d Delete type=2 #79
+2025/10/23-19:15:24.975 4f495f Level-0 table #82: started
+2025/10/23-19:15:24.985 4f495f Level-0 table #82: 1144071 bytes OK
+2025/10/23-19:15:24.988 4f495f Delete type=0 #78
+2025/10/23-19:15:25.238 4f495f Compacting 1@1 + 1@2 files
+2025/10/23-19:15:25.283 4f495f Generated table #83@1: 44718 keys, 2090499 bytes
+2025/10/23-19:15:25.283 4f495f Compacted 1@1 + 1@2 files => 2090499 bytes
+2025/10/23-19:15:25.284 4f495f compacted to: files[ 0 0 1 0 0 0 0 ]
+2025/10/23-19:15:25.284 4f495f Delete type=2 #80
+2025/10/23-19:15:25.284 4f495f Delete type=2 #82
+2025/10/24-01:48:50.267 4f495f Level-0 table #85: started
+2025/10/24-01:48:50.279 4f495f Level-0 table #85: 1151322 bytes OK
+2025/10/24-01:48:50.280 4f495f Delete type=0 #81
+2025/10/24-02:04:37.338 4f495f Compacting 1@1 + 1@2 files
+2025/10/24-02:04:37.361 4f495f Generated table #86@1: 46243 keys, 2054681 bytes
+2025/10/24-02:04:37.361 4f495f Compacted 1@1 + 1@2 files => 2054681 bytes
+2025/10/24-02:04:37.361 4f495f compacted to: files[ 0 0 1 0 0 0 0 ]
+2025/10/24-02:04:37.362 4f495f Delete type=2 #83
+2025/10/24-02:04:37.362 4f495f Delete type=2 #85
+2025/10/24-12:28:56.951 4f495f Level-0 table #88: started
+2025/10/24-12:28:56.972 4f495f Level-0 table #88: 1201801 bytes OK
+2025/10/24-12:28:56.974 4f495f Delete type=0 #84
+2025/10/24-12:34:20.877 4f495f Compacting 1@1 + 1@2 files
+2025/10/24-12:34:20.914 4f495f Generated table #89@1: 51721 keys, 2187696 bytes
+2025/10/24-12:34:20.914 4f495f Compacted 1@1 + 1@2 files => 2187696 bytes
+2025/10/24-12:34:20.915 4f495f compacted to: files[ 0 0 1 0 0 0 0 ]
+2025/10/24-12:34:20.915 4f495f Delete type=2 #88
+2025/10/24-12:34:20.915 4f495f Delete type=2 #86
+2025/10/24-16:39:19.336 4f495f Level-0 table #91: started
+2025/10/24-16:39:19.355 4f495f Level-0 table #91: 1209762 bytes OK
+2025/10/24-16:39:19.357 4f495f Delete type=0 #87

@@ -1,0 +1,15 @@
+2025/11/15-16:34:57.446 9cdf60 Reusing MANIFEST /Users/arielargevany/Documents/תכנות/עצמאי/דביר בסון - פרומפט חדש/whatsapp-session/session/Default/IndexedDB/https_web.whatsapp.com_0.indexeddb.leveldb/MANIFEST-000001
+2025/11/15-16:34:57.446 9cdf60 Recovering log #143
+2025/11/15-16:34:57.449 9cdf60 Reusing old log /Users/arielargevany/Documents/תכנות/עצמאי/דביר בסון - פרומפט חדש/whatsapp-session/session/Default/IndexedDB/https_web.whatsapp.com_0.indexeddb.leveldb/000143.log 
+2025/11/15-16:34:58.674 9cdf60 Level-0 table #149: started
+2025/11/15-16:34:58.678 9cdf60 Level-0 table #149: 176598 bytes OK
+2025/11/15-16:34:58.680 9cdf60 Delete type=0 #143
+2025/11/15-16:34:58.680 9cdf60 Manual compaction at level-0 from '\x00(\x00\x00\x00' @ 72057594037927935 : 1 .. '\x00)\x00\x00\x00' @ 0 : 0; will stop at (end)
+2025/11/15-16:34:59.498 9cdf63 Compacting 1@1 + 2@2 files
+2025/11/15-16:34:59.529 9cdf63 Generated table #150@1: 57687 keys, 2242805 bytes
+2025/11/15-16:34:59.550 9cdf63 Generated table #151@1: 36187 keys, 1642489 bytes
+2025/11/15-16:34:59.552 9cdf63 Compacted 1@1 + 2@2 files => 3885294 bytes
+2025/11/15-16:34:59.553 9cdf63 compacted to: files[ 0 0 2 0 0 0 0 ]
+2025/11/15-16:34:59.553 9cdf63 Delete type=2 #149
+2025/11/15-16:34:59.553 9cdf63 Delete type=2 #146
+2025/11/15-16:34:59.553 9cdf63 Delete type=2 #145

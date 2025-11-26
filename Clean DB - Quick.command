@@ -1,5 +1,5 @@
 #!/bin/zsh
-cd "/Users/arielargevany/Documents/דביר בסון - צאטבוט"
+cd "/Users/arielargevany/Documents/תכנות/עצמאי/דביר בסון - פרומפט חדש"
 export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 /usr/bin/env node quick_clean.js
 echo
