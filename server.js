@@ -1547,25 +1547,42 @@ ${contextMessages}
 ההודעה האחרונה מהלקוח:
 "${message}"
 
-שאלה: האם הלקוח מביע אי-עניין, התנגדות או סירוב בשלב מוקדם של השיחה?
+שאלה: האם הלקוח מביע אי-עניין, התנגדות או סירוב?
 
-דוגמאות להתנגדות מוקדמת:
+⚠️ חשוב מאוד: גם הודעות קצרות מאוד יכולות להיות סירוב!
+
+דוגמאות להתנגדות (ענה YES):
+✅ "לא" (מילה אחת - זה סירוב ברור!)
+✅ "לאאא" (גם עם אותיות נוספות)
+✅ "לא."
 ✅ "לא מעוניין"
+✅ "לא תודה"
+✅ "תודה לא"
 ✅ "לא רלוונטי"
 ✅ "לא בשבילי"
-✅ "תודה לא"
 ✅ "לא מתאים לי"
-✅ "אני לא מעוניין כרגע"
+✅ "לא מתאים"
+✅ "אני לא מעוניין"
 ✅ "זה לא בשבילי"
 ✅ "לא מחפש"
+✅ "לא צריך"
+✅ "לא רוצה"
+✅ "לא קשור"
+✅ "לא בשבילנו"
+✅ "pass"
+✅ "פאס"
+✅ "לא עכשיו"
+✅ "לא בזמן הזה"
 
-דוגמאות שאינן התנגדות:
+דוגמאות שאינן התנגדות (ענה NO):
 ❌ "אני צריך לחשוב" (זה לא סירוב סופי)
-❌ "תודה" (סתם תודה ללא הקשר)
-❌ שאלות כמו "כמה זה עולה?"
-❌ "אין לי זמן עכשיו" (לא סירוב מוחלט)
+❌ "תודה" (סתם תודה ללא הקשר שלילי)
+❌ שאלות כמו "כמה זה עולה?" או "מתי האימונים?"
+❌ "אין לי זמן עכשיו אבל אולי בהמשך" (עניין עתידי)
+❌ "מה זה?" (שאלה)
+❌ "ספר לי עוד" (עניין)
 
-⚠️ חשוב: זה חייב להיות סירוב ברור ומוקדם (בהודעות 1-5), לא רק היסוס.
+🎯 כלל הזהב: אם ההודעה מתחילה ב"לא" ואין בה שאלה או עניין - זה סירוב.
 
 השב רק: YES או NO`;
 
@@ -1609,10 +1626,13 @@ async function sendWhyQuestionAfterRejection(sessionId, client) {
             console.log(`❓ נשלחה שאלת "למה?" ל-${phone}`);
             
             // עדכון מסד נתונים - מסמן ששאלנו "למה?" והתחלת ספירת 5 שעות
+            // ⚠️ חשוב: awaiting_stop_response = TRUE כדי שהתשובה הבאה תזוהה כתשובה על "למה?"
             const now = new Date().toISOString();
             db.run(`UPDATE clients SET 
                     early_rejection_why_asked = TRUE,
                     early_rejection_why_date = ?,
+                    early_rejection_detected = TRUE,
+                    awaiting_stop_response = TRUE,
                     updated_at = CURRENT_TIMESTAMP
                     WHERE phone = ?`,
                 [now, phone],
@@ -1620,7 +1640,7 @@ async function sendWhyQuestionAfterRejection(sessionId, client) {
                     if (err) {
                         console.error('❌ שגיאה בעדכון early_rejection_why_asked:', err.message);
                     } else {
-                        console.log(`⏱️ התחלת ספירת 5 שעות עבור ${phone}`);
+                        console.log(`⏱️ התחלת ספירת 5 שעות + awaiting_stop_response עבור ${phone}`);
                     }
                 }
             );
@@ -2351,12 +2371,19 @@ async function detectOptOutRequestWithGPT(message) {
 // PAYMENT DETECTION - GPT BASED (מנוע חשיבה חכם!)
 // ===============================
 
-
-async function detectPaymentWithGPT(message) {
+/**
+ * בודק עם GPT אם הודעה מציינת תשלום
+ * @param {string} message - ההודעה לבדיקה
+ * @param {string} messageType - 'client' לבדיקת הודעה של לקוח, 'bot' לבדיקת הודעה של הבוט
+ */
+async function detectPaymentWithGPT(message, messageType = 'client') {
     try {
-        console.log('🤖 GPT מנתח את ההודעה לזיהוי תשלום...');
+        const isClientMessage = messageType === 'client';
+        console.log(`🤖 GPT מנתח ${isClientMessage ? 'הודעת לקוח' : 'הודעת בוט'} לזיהוי תשלום...`);
         
-        const analysisPrompt = `You are analyzing a WhatsApp message from a client who was sent a payment link for a trial training session.
+        // פרומפט שונה לפי סוג ההודעה
+        const analysisPrompt = isClientMessage 
+            ? `You are analyzing a WhatsApp message from a client who was sent a payment link for a trial training session.
 
 Your task: Determine if the message indicates the client has COMPLETED the payment.
 
@@ -2374,21 +2401,41 @@ EXAMPLES OF YES (payment completed):
 - "עשיתי העברה" / "שלחתי העברה"
 - "תשלום עבר" / "התשלום עבר" / "שולם"
 - "שילמתי, השם שלי..." (even if includes other info)
+
+EXAMPLES OF NO (not payment confirmation):
 - "קיבלת את התשלום?" → NO (question, not confirmation)
 - "אני אשלם" → NO (future promise)
 - "מתי לשלם?" → NO (question)
 - "איך משלמים?" → NO (question)
 - "כמה עולה?" → NO (question about price)
-- "תודה" alone → NO (not payment confirmation)
-- "אוקיי" alone → NO (not payment confirmation)
-- "סבבה" alone → NO (not payment confirmation)
+- "תודה" alone → NO
+- "אוקיי" alone → NO
 
-IMPORTANT: In Hebrew, these phrases mean payment was COMPLETED:
-- שילמתי = I paid (past tense - DONE)
-- שלחתי תשלום = I sent payment (past tense - DONE)
-- עשיתי תשלום = I made payment (past tense - DONE)
-- ביצעתי תשלום = I executed payment (past tense - DONE)
-- התשלום עבר = The payment went through (DONE)
+Answer only YES or NO.`
+            : `You are analyzing a WhatsApp message sent BY A BOT to a client.
+
+Your task: Determine if the bot message CONFIRMS that payment was received.
+
+Answer ONLY: YES or NO
+
+CRITICAL RULES:
+- Answer YES if the bot confirms receiving payment from the client
+- Answer YES if the bot says the spot is reserved after payment
+- Answer NO if it's asking for payment or sending a payment link
+- Answer NO if it's just general information
+
+EXAMPLES OF YES (bot confirms payment received):
+- "קיבלתי את התשלום, תודה!" (I received the payment, thanks!)
+- "המקום שלך שמור לאימון" (Your spot is reserved for training)
+- "קיבלתי את אישור התשלום" (I received the payment confirmation)
+- "התשלום התקבל" (Payment received)
+- "מעולה! קיבלתי את התשלום" (Great! I received the payment)
+
+EXAMPLES OF NO (not payment confirmation):
+- "הנה הקישור לתשלום" (Here's the payment link)
+- "כדי לשמור את המקום צריך תשלום" (To reserve the spot you need to pay)
+- "תעדכן אותי כשהתשלום עובר" (Update me when payment goes through)
+- General training info
 
 Answer only YES or NO.`;
         
@@ -2406,9 +2453,9 @@ Answer only YES or NO.`;
         const isPayment = response === "YES";
         
         if (isPayment) {
-            console.log('✅ GPT זיהה תשלום:', message.substring(0, 50));
+            console.log(`✅ GPT זיהה ${isClientMessage ? 'תשלום מלקוח' : 'אישור תשלום מהבוט'}:`, message.substring(0, 50));
         } else {
-            console.log('❌ GPT לא זיהה תשלום:', message.substring(0, 50));
+            console.log(`ℹ️ GPT לא זיהה ${isClientMessage ? 'תשלום' : 'אישור תשלום'}:`, message.substring(0, 50));
         }
         
         return isPayment;
@@ -2416,6 +2463,11 @@ Answer only YES or NO.`;
         console.error("Payment detection failed:", error);
         return false;
     }
+}
+
+// פונקציית עזר לזיהוי אישור תשלום בהודעת בוט
+async function detectPaymentConfirmationInBotResponse(botResponse) {
+    return detectPaymentWithGPT(botResponse, 'bot');
 }
 
 /**
@@ -4419,8 +4471,8 @@ async function detectExperienceWithGPT(message) {
 async function checkMissingInfo(client, conversationHistory) {
     const missing = [];
     
-    // בדיקת שדות חובה
-    if (!client.name) missing.push('name');
+    // בדיקת שדות חובה - בודקים גם name וגם full_name
+    if (!client.name && !client.full_name) missing.push('name');
     if (!client.age) missing.push('age');
     if (!client.appointment_date) missing.push('appointment_date');
     if (!client.appointment_time) missing.push('appointment_time');
@@ -5412,24 +5464,46 @@ async function sendBlockedClientNotificationToManagers(client, lastMessage, summ
 async function blockClientCompletely(phone, clientName, reason = 'לקוח ביקש להפסיק') {
     return new Promise(async (resolve) => {
         try {
-            console.log(`🚫 חוסם לקוח לחלוטין: ${clientName || phone}`);
+            // נרמול המספר לפני כל פעולה
+            const normalizedPhone = normalizePhoneNumber(phone);
+            console.log(`🚫 חוסם לקוח לחלוטין: ${clientName || normalizedPhone} (${phone} → ${normalizedPhone})`);
             
-            // 1. הוסף ל-blocked_contacts (אם עדיין לא שם)
+            // 1. הוסף ל-blocked_contacts (אם עדיין לא שם) עם חסימה מלאה
             await new Promise((res) => {
-                db.run(`INSERT OR IGNORE INTO blocked_contacts (phone, full_name, reason) VALUES (?, ?, ?)`,
-                    [phone, clientName || 'לא ידוע', reason],
+                db.run(`INSERT OR IGNORE INTO blocked_contacts (phone, full_name, reason, blocked_from_bot, blocked_from_followup) VALUES (?, ?, ?, 1, 1)`,
+                    [normalizedPhone, clientName || 'לא ידוע', reason],
                     (err) => {
                         if (err) {
                             console.error('❌ שגיאה בהוספה ל-blocked_contacts:', err.message);
                         } else {
-                            console.log(`✅ ${phone} נוסף ל-blocked_contacts`);
+                            console.log(`✅ ${normalizedPhone} נוסף ל-blocked_contacts עם חסימה מלאה`);
                         }
                         res();
                     }
                 );
             });
             
-            // 2. עצור את כל סוגי הפולואו-אפ
+            // עדכון חסימה מלאה גם אם הרשומה כבר קיימת
+            await new Promise((res) => {
+                db.run(`UPDATE blocked_contacts 
+                        SET blocked_from_bot = 1, 
+                            blocked_from_followup = 1,
+                            full_name = COALESCE(?, full_name),
+                            reason = COALESCE(?, reason)
+                        WHERE phone = ?`,
+                    [clientName || null, reason || null, normalizedPhone],
+                    (err) => {
+                        if (err) {
+                            console.error('❌ שגיאה בעדכון חסימה:', err.message);
+                        } else {
+                            console.log(`✅ ${normalizedPhone} עודכן עם חסימה מלאה`);
+                        }
+                        res();
+                    }
+                );
+            });
+            
+            // 2. עצור את כל סוגי הפולואו-אפ (גם כאן צריך נרמול)
             await new Promise((res) => {
                 db.run(`UPDATE clients SET 
                         followup_stopped = TRUE,
@@ -5439,20 +5513,20 @@ async function blockClientCompletely(phone, clientName, reason = 'לקוח בי�
                         early_rejection_detected = FALSE,
                         followup_attempts = 0,
                         updated_at = CURRENT_TIMESTAMP
-                        WHERE phone = ?`,
-                    [phone],
+                        WHERE phone = ? OR phone = ?`,
+                    [normalizedPhone, phone], // בדיקה גם עם המספר המנורמל וגם עם המקורי
                     (err) => {
                         if (err) {
                             console.error('❌ שגיאה בעצירת כל סוגי הפולואו-אפ:', err.message);
                         } else {
-                            console.log(`✅ כל סוגי הפולואו-אפ נעצרו עבור ${phone}`);
+                            console.log(`✅ כל סוגי הפולואו-אפ נעצרו עבור ${normalizedPhone}`);
                         }
                         res();
                     }
                 );
             });
             
-            console.log(`✅ לקוח ${phone} נחסם לחלוטין ולא יקבל עוד הודעות`);
+            console.log(`✅ לקוח ${normalizedPhone} נחסם לחלוטין ולא יקבל עוד הודעות`);
             resolve(true);
         } catch (error) {
             console.error('❌ שגיאה בחסימה מלאה של לקוח:', error);
@@ -6367,19 +6441,23 @@ async function processMessage(message, sessionId) {
         if (isPayment && detection.hasName && client.full_name_received === 0) {
             console.log('✅ תשלום + שם מלא זוהו ביחד!', detection.fullName);
             
-            // עדכן רק את השם - התשלום יטופל אחר כך בקוד למטה
+            // חילוץ שם פרטי משם מלא
+            const firstName = detection.fullName.split(' ')[0];
+            
+            // עדכן את השם - התשלום יטופל אחר כך בקוד למטה
             await new Promise((resolve, reject) => {
                 db.run(`UPDATE clients SET 
                     full_name = ?,
+                    name = ?,
                     full_name_received = TRUE,
                     full_name_received_date = CURRENT_TIMESTAMP
                     WHERE phone = ?`,
-                    [detection.fullName, phone], function(err) {
+                    [detection.fullName, firstName, phone], function(err) {
                         if (err) {
                             console.error('❌ שגיאה בעדכון שם מלא:', err.message);
                             reject(err);
                         } else {
-                            console.log('✅ שם מלא עודכן - ממשיך לטיפול בתשלום');
+                            console.log('✅ שם מלא ושם פרטי עודכנו - ממשיך לטיפול בתשלום');
                             resolve();
                         }
                     });
@@ -6387,26 +6465,31 @@ async function processMessage(message, sessionId) {
             
             // עדכן את ה-client object כדי שהקוד למטה יראה שיש שם
             client.full_name = detection.fullName;
+            client.name = firstName;
             client.full_name_received = 1;
         }
         // 🎯 מקרה 2: יש רק שם (בלי תשלום) - כמו "אריאל כהן"
         else if (!isPayment && detection.hasName && client.full_name_received === 0) {
             console.log('✅ שם מלא זוהה:', detection.fullName);
 
+            // חילוץ שם פרטי משם מלא
+            const firstName = detection.fullName.split(' ')[0];
+
             await new Promise((resolve, reject) => {
                 db.run(`UPDATE clients SET 
                     full_name = ?,
+                    name = ?,
                     full_name_received = TRUE,
                     full_name_received_date = CURRENT_TIMESTAMP,
                     waiting_for_payment = TRUE,
                     updated_at = CURRENT_TIMESTAMP
                     WHERE phone = ?`,
-                    [detection.fullName, phone], function(err) {
+                    [detection.fullName, firstName, phone], function(err) {
                         if (err) {
                             console.error('❌ שגיאה בעדכון שם מלא:', err.message);
                             reject(err);
                         } else {
-                            console.log('✅ שם מלא עודכן בהצלחה בבסיס הנתונים');
+                            console.log('✅ שם מלא ושם פרטי עודכנו בהצלחה בבסיס הנתונים');
                             resolve();
                         }
                     });
@@ -6873,11 +6956,52 @@ async function processMessage(message, sessionId) {
             conversationHistory = [];
         }
     }
+
+    // =========================================
+    // 🚫 בדיקת Early Rejection - זיהוי אי-עניין מוקדם
+    // =========================================
+    // בודק אם הלקוח מסרב בהודעות הראשונות (לפני שיש שיחה אמיתית)
+    // זה חשוב במיוחד כשלקוח עונה "לא" / "לא מעוניין" להודעה השיווקית
+    
+    if (client && !client.payment_confirmed && !client.awaiting_stop_response && !client.followup_stopped) {
+        const userMessageCount = conversationHistory.filter(m => m.role === 'user').length;
+        
+        // בודק רק ב-5 ההודעות הראשונות
+        if (userMessageCount <= 5) {
+            console.log(`🔍 בודק Early Rejection (הודעה ${userMessageCount + 1} של הלקוח)...`);
+            
+            const isEarlyRejection = await detectEarlyRejection(message, conversationHistory);
+            
+            if (isEarlyRejection) {
+                console.log('🚫 זוהה סירוב מוקדם! מטפל בזה כ-"לא מעוניין"');
+                
+                // אם זו הפעם הראשונה - שואלים "למה?" ושולחים למנהלים
+                const response = await sendWhyQuestionAfterRejection(sessionId, client);
+                
+                // שמירת ההודעות להיסטוריה
+                await saveConversation(sessionId, "user", message);
+                
+                // שליחה מיידית למנהלים
+                if (!client.notification_sent_to_managers) {
+                    console.log('📤 שולח הודעה למנהלים על סירוב מוקדם...');
+                    try {
+                        const summary = await extractClientDetailsFromConversation(phone);
+                        await sendNotInterestedNotificationToManagers(client, summary, null);
+                        console.log('✅ הודעה נשלחה למנהלים');
+                    } catch (error) {
+                        console.error('❌ שגיאה בשליחה למנהלים:', error.message);
+                    }
+                }
+                
+                return response;
+            }
+        }
+    }
     
     // =========================================
     // בדיקה: האם הלקוח ממתין לאישור שעה?
     // =========================================
-    if (client && client.waiting_for_time_confirmation > 0 && client.payment_confirmed === true) {
+    if (client && client.waiting_for_time_confirmation > 0 && client.payment_confirmed) {
         console.log('⏰ לקוח ממתין לאישור שעה - בודק את התשובה...');
         
         // בדיקה עם GPT אם הלקוח אישר את השעה
@@ -7738,6 +7862,60 @@ https://youtube.com/shorts/_Bk2vYeGQTQ?si=n1wgv8-3t7_hEs45`;
     await saveConversation(sessionId, 'user', message);
     await saveConversation(sessionId, 'assistant', response);
 
+    // 🚨 בדיקת אישור תשלום שנוצר על ידי GPT - להבטיח שליחה למנהלים
+    // רץ רק אם: יש לקוח + נשלח קישור תשלום + תשלום לא אושר עדיין + לא נשלחה הודעה למנהלים
+    const shouldCheckPaymentConfirmation = client && 
+        client.payment_link_sent_date && 
+        !client.payment_confirmed && 
+        !client.notification_sent_to_managers;
+    
+    if (shouldCheckPaymentConfirmation) {
+        // בודק עם GPT אם התשובה מאשרת תשלום
+        const isPaymentConfirmationResponse = await detectPaymentConfirmationInBotResponse(response);
+        
+        if (isPaymentConfirmationResponse) {
+            console.log('🔔 GPT יצר הודעת אישור תשלום - שולח למנהלים...');
+            
+            try {
+                // טוען היסטוריה עדכנית מה-DB (כולל ההודעות שנשמרו זה עתה)
+                const fullHistory = await loadConversationHistory(sessionId);
+                
+                // ניתוח השיחה
+                const analysis = await analyzeConversationAfterPayment(sessionId, fullHistory);
+                
+                if (analysis) {
+                    await sendSummaryToManagers(analysis);
+                    console.log('✅ הודעה למנהלים נשלחה בהצלחה');
+                } else {
+                    // שליחת הודעה בסיסית אם הניתוח נכשל
+                    const basicNotification = {
+                        phoneNumber: phone,
+                        fullName: client?.full_name || client?.name || 'לא צוין',
+                        age: client?.age || 'לא צוין',
+                        conversationSummary: 'תשלום אושר (זוהה מהודעת GPT)',
+                        appointmentDateAbsolute: client?.appointment_date || 'לא נקבע',
+                        appointmentTime: client?.appointment_time || 'לא נקבעה',
+                        trainingType: 'לא צוין',
+                        experience: 'לא צוין',
+                        isParentForChild: false,
+                        parentName: null
+                    };
+                    await sendSummaryToManagers(basicNotification);
+                    console.log('✅ הודעה בסיסית למנהלים נשלחה');
+                }
+                
+                // עדכון סטטוס
+                await updateClientLeadStatus(sessionId, 'hot', {
+                    payment_confirmed: true,
+                    notification_sent_to_managers: true
+                });
+                
+            } catch (error) {
+                console.error('❌ שגיאה בשליחת הודעה למנהלים מזיהוי GPT:', error.message);
+            }
+        }
+    }
+
     // בדיקה אם זו הודעת סיום עם GPT - אם כן, סימון השיחה כהסתיימה
     const isEnding = await detectConversationEndingWithGPT(response);
     if (isEnding) {
@@ -8272,7 +8450,7 @@ whatsappClient.on('message', async (message) => {
             
             const isAwaitingPayment = client && 
                                       client.payment_link_sent_date !== null && 
-                                      client.payment_confirmed === false;
+                                      !client.payment_confirmed;
             
             if (isAwaitingPayment) {
                 console.log('💰 לקוח ממתין לתשלום ושלח תמונה - מתחיל טיפול מיוחד');
@@ -8294,7 +8472,7 @@ whatsappClient.on('message', async (message) => {
                 });
                 
                 // שליחת התשובה המתאימה
-                const responseText = 'לצערי אני לא יכול לראות תמונות יש לי קצת בעיה כרגע, מה יש בתמונה? זה אישור ששילמת?';
+                const responseText = 'התמונה לא נטענת לי, משהו עם האינטרנט 😅 אשמח לדעת מה יש בה - זה אישור ששילמת?';
                 
                 await whatsappClient.sendMessage(sessionId, responseText);
                 console.log('✅ נשלחה הודעה לשאלה על התמונה');
