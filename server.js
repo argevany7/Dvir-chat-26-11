@@ -179,7 +179,9 @@ function initializeDatabase() {
         { table: 'clients', column: 'awaiting_summary_confirmation', type: 'BOOLEAN DEFAULT FALSE' },
         { table: 'clients', column: 'summary_sent', type: 'BOOLEAN DEFAULT FALSE' },
         { table: 'clients', column: 'summary_confirmed', type: 'BOOLEAN DEFAULT FALSE' },
-        { table: 'clients', column: 'current_person_index', type: 'INTEGER DEFAULT 0' }
+        { table: 'clients', column: 'current_person_index', type: 'INTEGER DEFAULT 0' },
+        // External message tracking (BoostApp, etc.)
+        { table: 'clients', column: 'external_message_sent', type: 'BOOLEAN DEFAULT FALSE' }
     ];
     
     // הרצת מיגרציות בצורה סדרתית כדי למנוע race conditions
@@ -838,7 +840,7 @@ async function detectConversationEndingWithGPT(botMessage) {
         if (isEnding) {
             console.log('✅ GPT אישר: הבוט סיים את השיחה');
         } else {
-            console.log('❌ GPT קבע: השיחה ממשיכה');
+            console.log('ℹ️ GPT קבע: השיחה ממשיכה');
         }
         
         return isEnding;
@@ -923,7 +925,7 @@ async function detectSpecificQuestionWithGPT(message) {
         if (isQuestion) {
             console.log('✅ GPT זיהה: שאלה ספציפית');
         } else {
-            console.log('❌ GPT: לא שאלה ספציפית');
+            console.log('ℹ️ GPT: לא שאלה ספציפית');
         }
         
         return isQuestion;
@@ -1534,6 +1536,35 @@ async function detectEarlyRejection(message, conversationHistory) {
         
         console.log(`🔍 בודק התנגדות מוקדמת (הודעה ${messageCount})...`);
         
+        // בדיקה מהירה עם מילות מפתח - אם יש התאמה ברורה, לא צריך GPT
+        // ⚠️ הסרת סימני פיסוק מההודעה לפני הבדיקה
+        const cleanMessage = message.trim().replace(/[.!?,;:]+$/g, '').trim();
+        const quickRejectPatterns = [
+            /^לא$/,                    // "לא" בלבד
+            /^לא+$/,                   // "לאאא" וכו'
+            /^לא\s*מעוניינ/,           // "לא מעוניין/ת"
+            /^לא\s*תודה/,              // "לא תודה"
+            /^תודה\s*,?\s*לא/,         // "תודה לא" או "תודה, לא"
+            /^לא\s*רל[וו]נטי/,         // "לא רלוונטי" / "לא רלבנטי"
+            /^לא\s*בשביל/,             // "לא בשבילי/נו"
+            /^לא\s*מתאים/,             // "לא מתאים"
+            /^פאס$/i,                  // "פאס"
+            /^pass$/i,                 // "pass"
+            /^לא\s*רוצה/,              // "לא רוצה"
+            /^לא\s*צריך/,              // "לא צריך"
+            /^לא\s*מחפש/,              // "לא מחפש"
+            /^לא\s*עכשיו/,             // "לא עכשיו"
+            /^לא\s*כרגע/,              // "לא כרגע"
+            /^לא\s*קשור/,              // "לא קשור"
+            /^די\s*תודה/,              // "די תודה"
+        ];
+        
+        const isQuickReject = quickRejectPatterns.some(pattern => pattern.test(cleanMessage));
+        if (isQuickReject) {
+            console.log('🚫 זיהוי מהיר: התנגדות מוקדמת ברורה!');
+            return true;
+        }
+        
         // בניית הקשר השיחה
         const contextMessages = conversationHistory.slice(-3).map(msg => 
             `${msg.role === 'user' ? 'לקוח' : 'בוט'}: ${msg.content}`
@@ -1547,42 +1578,39 @@ ${contextMessages}
 ההודעה האחרונה מהלקוח:
 "${message}"
 
-שאלה: האם הלקוח מביע אי-עניין, התנגדות או סירוב?
+⚠️ שאלה קריטית: האם הלקוח מביע אי-עניין, התנגדות או סירוב?
 
-⚠️ חשוב מאוד: גם הודעות קצרות מאוד יכולות להיות סירוב!
+⚠️ חשוב מאוד: היה רגיש לכל סוג של סירוב! גם הודעות קצרות מאוד יכולות להיות סירוב!
 
-דוגמאות להתנגדות (ענה YES):
+דוגמאות להתנגדות (ענה YES - גם לווריאציות קרובות):
 ✅ "לא" (מילה אחת - זה סירוב ברור!)
-✅ "לאאא" (גם עם אותיות נוספות)
-✅ "לא."
-✅ "לא מעוניין"
-✅ "לא תודה"
-✅ "תודה לא"
-✅ "לא רלוונטי"
-✅ "לא בשבילי"
-✅ "לא מתאים לי"
-✅ "לא מתאים"
-✅ "אני לא מעוניין"
-✅ "זה לא בשבילי"
-✅ "לא מחפש"
+✅ "לאאא" / "לא." / "לא!"
+✅ "לא מעוניין" / "לא מעוניינת"
+✅ "לא תודה" / "תודה לא"
+✅ "לא רלוונטי" / "לא רלבנטי" / "לא רלוונט"
+✅ "לא בשבילי" / "לא בשבילנו"
+✅ "לא מתאים" / "לא מתאים לי"
+✅ "אני לא מעוניין/ת"
+✅ "זה לא בשבילי/נו"
+✅ "לא מחפש/ת"
 ✅ "לא צריך"
 ✅ "לא רוצה"
 ✅ "לא קשור"
-✅ "לא בשבילנו"
-✅ "pass"
-✅ "פאס"
-✅ "לא עכשיו"
+✅ "pass" / "פאס"
+✅ "לא עכשיו" / "לא כרגע"
 ✅ "לא בזמן הזה"
+✅ "רחוק ממני" / "זה רחוק"
+✅ "יקר לי" / "יקר מדי"
+✅ "אין לי זמן"
 
-דוגמאות שאינן התנגדות (ענה NO):
-❌ "אני צריך לחשוב" (זה לא סירוב סופי)
+דוגמאות שאינן התנגדות (ענה NO רק במקרים אלו):
+❌ "אני צריך לחשוב" (לא סירוב סופי)
 ❌ "תודה" (סתם תודה ללא הקשר שלילי)
-❌ שאלות כמו "כמה זה עולה?" או "מתי האימונים?"
-❌ "אין לי זמן עכשיו אבל אולי בהמשך" (עניין עתידי)
-❌ "מה זה?" (שאלה)
-❌ "ספר לי עוד" (עניין)
+❌ שאלות על מחיר/מיקום/זמנים = עניין
+❌ "מה זה?" / "ספר לי עוד" = עניין
 
-🎯 כלל הזהב: אם ההודעה מתחילה ב"לא" ואין בה שאלה או עניין - זה סירוב.
+🎯 כלל הזהב: אם יש ספק - זה כנראה סירוב! ענה YES.
+🎯 ענה NO רק אם יש עניין ברור או שאלות.
 
 השב רק: YES או NO`;
 
@@ -1606,7 +1634,13 @@ ${contextMessages}
         
     } catch (error) {
         console.error('❌ שגיאה בזיהוי התנגדות מוקדמת:', error.message);
-        return false;
+        // בבעיה - נבדוק עם מילות מפתח בסיסיות
+        const cleanMsg = message.trim().replace(/[.!?,;:]+$/g, '').trim();
+        return cleanMsg.includes('לא מעוניין') || 
+               cleanMsg.includes('לא רלוונטי') || 
+               cleanMsg.includes('לא תודה') ||
+               cleanMsg.includes('לא רלבנטי') ||
+               /^לא+$/.test(cleanMsg);
     }
 }
 
@@ -1627,12 +1661,15 @@ async function sendWhyQuestionAfterRejection(sessionId, client) {
             
             // עדכון מסד נתונים - מסמן ששאלנו "למה?" והתחלת ספירת 5 שעות
             // ⚠️ חשוב: awaiting_stop_response = TRUE כדי שהתשובה הבאה תזוהה כתשובה על "למה?"
+            // ✅ תיקון: מעדכנים גם followup_stopped ו-followup_enabled כדי לעצור פולואו-אפ מיידית
             const now = new Date().toISOString();
             db.run(`UPDATE clients SET 
                     early_rejection_why_asked = TRUE,
                     early_rejection_why_date = ?,
                     early_rejection_detected = TRUE,
                     awaiting_stop_response = TRUE,
+                    followup_stopped = TRUE,
+                    followup_enabled = FALSE,
                     updated_at = CURRENT_TIMESTAMP
                     WHERE phone = ?`,
                 [now, phone],
@@ -1640,7 +1677,7 @@ async function sendWhyQuestionAfterRejection(sessionId, client) {
                     if (err) {
                         console.error('❌ שגיאה בעדכון early_rejection_why_asked:', err.message);
                     } else {
-                        console.log(`⏱️ התחלת ספירת 5 שעות + awaiting_stop_response עבור ${phone}`);
+                        console.log(`⏱️ התחלת ספירת 5 שעות + awaiting_stop_response + עצירת פולואו-אפ עבור ${phone}`);
                     }
                 }
             );
@@ -2621,45 +2658,6 @@ Answer NO if they just ask questions or make general requests.`;
 }
 
 /**
- * זיהוי שאלה על כמות מתאמנים בקבוצה
- */
-async function detectGroupSizeQuestionWithGPT(message) {
-    try {
-        console.log('🤖 GPT בודק האם יש שאלה על כמות מתאמנים...');
-        
-        const analysisPrompt = `Answer only YES or NO.
-Does this message ask about the number of people/participants/students in the training group?
-Examples that should return YES:
-- "כמה ילדים יש בקבוצה"
-- "כמה מתאמנים בקבוצה"
-- "מה גודל הקבוצה"
-- "כמה אנשים מתאמנים"
-- "כמה משתתפים יש"
-- "How many people in the group"
-- "What's the group size"
-
-Answer NO for other questions.`;
-        
-        const completion = await openai.chat.completions.create({
-            model: "gpt-4o-mini",
-            messages: [
-                { role: "system", content: analysisPrompt },
-                { role: "user", content: message }
-            ],
-            max_tokens: 5,
-            temperature: 0
-        });
-        
-        const response = completion.choices[0].message.content.trim().toUpperCase();
-        console.log(`   └─ תוצאה: ${response}`);
-        return response === "YES";
-    } catch (error) {
-        console.error("❌ זיהוי שאלת גודל קבוצה נכשל:", error);
-        return false;
-    }
-}
-
-/**
  * זיהוי בקשה לשיחת טלפון
  */
 async function detectPhoneCallRequestWithGPT(message) {
@@ -2992,7 +2990,7 @@ ${contextMessages}
         const response = completion.choices[0].message.content.trim();
         
         if (response === 'NONE') {
-            console.log('❌ GPT לא מצא גיל');
+            console.log('ℹ️ GPT לא מצא גיל');
             return null;
         }
         
@@ -3060,7 +3058,7 @@ ${conversationText}
         const count = parseInt(response);
         
         if (isNaN(count) || count < 1) {
-            console.log('❌ GPT החזיר תשובה לא תקינה, משתמש ב-1 כברירת מחדל');
+            console.log('⚠️ GPT החזיר תשובה לא תקינה, משתמש ב-1 כברירת מחדל');
             return 1;
         }
         
@@ -3130,7 +3128,7 @@ ${contextMessages}
         const response = completion.choices[0].message.content.trim();
         
         if (response === 'NONE') {
-            console.log('❌ GPT לא מצא כיתה');
+            console.log('ℹ️ GPT לא מצא כיתה');
             return null;
         }
         
@@ -3259,7 +3257,7 @@ ${contextMessages}
             console.log('✅ GPT זיהה אישור');
             return 'yes';
         } else if (response === 'NO') {
-            console.log('❌ GPT זיהה דחייה');
+            console.log('🚫 GPT זיהה דחייה');
             return 'no';
         } else {
             console.log('❓ GPT לא בטוח באישור/דחייה');
@@ -4199,32 +4197,94 @@ async function detectPaymentAndNameWithGPT(message) {
     try {
         console.log('🤖 GPT מנתח בו-זמנית תשלום ושם מלא...');
         
+        // בדיקה מהירה - אם יש התאמה ברורה לתשלום, נחזיר מיד
+        const lowerMessage = message.toLowerCase().trim();
+        
+        // ⚠️ תיקון: בדיקה שזה לא "לא שילמתי" או "עוד לא שילמתי"
+        const negativePaymentPatterns = [
+            /לא\s*שילמתי/,         // לא שילמתי
+            /עוד\s*לא\s*שילמתי/,   // עוד לא שילמתי
+            /לא\s*שלמתי/,          // לא שלמתי (טעות כתיב)
+            /טרם\s*שילמתי/,        // טרם שילמתי
+        ];
+        
+        const isNegativePayment = negativePaymentPatterns.some(pattern => pattern.test(lowerMessage));
+        if (isNegativePayment) {
+            console.log('⚠️ זיהוי: "לא שילמתי" - לא מזהה כתשלום');
+            // ממשיכים לבדיקת GPT
+        } else {
+            const quickPaymentPatterns = [
+                /^שילמתי/,              // שילמתי בתחילת המשפט
+                /^שלמתי/,               // טעות כתיב נפוצה
+                /שלחתי\s*תשלום/,       // שלחתי תשלום
+                /עשיתי\s*תשלום/,       // עשיתי תשלום
+                /ביצעתי\s*תשלום/,      // ביצעתי תשלום
+                /תשלום\s*עבר/,         // תשלום עבר
+                /התשלום\s*עבר/,        // התשלום עבר
+                /^שולם$/,              // שולם
+                /עשיתי\s*העברה/,       // עשיתי העברה
+                /שלחתי\s*העברה/,       // שלחתי העברה
+                /כבר\s*שילמתי/,        // כבר שילמתי
+                /שילמתי\s*כבר/,        // שילמתי כבר
+            ];
+            
+            const isQuickPayment = quickPaymentPatterns.some(pattern => pattern.test(lowerMessage));
+            if (isQuickPayment) {
+                console.log('💰 זיהוי מהיר: תשלום זוהה ישירות!');
+                
+                // ⚠️ תיקון: בדיקת שם רק אם יש שתי מילים נפרדות שאינן מילות תשלום
+                const paymentWords = ['שילמתי', 'שלמתי', 'כבר', 'עכשיו', 'את', 'תשלום', 'העברה', 'עשיתי', 'שלחתי', 'ביצעתי'];
+                const words = message.split(/\s+/).filter(w => !paymentWords.includes(w.replace(/[.,!?]/g, '')));
+                
+                // רק אם יש לפחות 2 מילים עבריות שאינן מילות תשלום
+                let fullName = null;
+                if (words.length >= 2) {
+                    const hebrewWords = words.filter(w => /^[\u0590-\u05FF]+$/.test(w));
+                    if (hebrewWords.length >= 2) {
+                        fullName = hebrewWords.slice(0, 2).join(' ');
+                    }
+                }
+                
+                return {
+                    hasPayment: true,
+                    hasName: !!fullName,
+                    fullName: fullName
+                };
+            }
+        }
+        
         const analysisPrompt = `You are analyzing a WhatsApp message from a client who was sent a payment link for a trial training session.
 
 Detect TWO things:
-1. Does it indicate payment was COMPLETED? (Answer YES only for clear confirmations of completed payment)
+1. Does it indicate payment was COMPLETED? (Answer YES for clear confirmations)
 2. Does it contain a full name (first + last name)?
 
-CRITICAL RULES FOR PAYMENT:
-- Answer YES only if the message clearly indicates payment was COMPLETED/FINISHED/DONE
-- Answer NO if it's just a question, promise, or unclear statement
-- Be STRICT - only YES for clear confirmations
+⚠️ CRITICAL RULES FOR PAYMENT:
+- Answer YES if the message indicates payment was DONE/COMPLETED/SENT
+- Look for ANY indication of completed payment
+- Be GENEROUS with payment detection - if someone says they paid, believe them!
 
 PAYMENT = YES examples (payment completed):
-- "שילמתי" / "שילמתי עכשיו" / "שילמתי את התשלום"
-- "שלחתי תשלום" / "עשיתי תשלום" / "ביצעתי תשלום"
-- "שילמתי את העשרה שקלים" / "שילמתי 10 ש\"ח"
-- "עשיתי העברה" / "שלחתי העברה"
-- "תשלום עבר" / "התשלום עבר" / "שולם"
+✅ "שילמתי" / "שלמתי" / "שילמתי כבר" / "כבר שילמתי"
+✅ "שילמתי עכשיו" / "עכשיו שילמתי"
+✅ "שילמתי את התשלום"
+✅ "שלחתי תשלום" / "עשיתי תשלום" / "ביצעתי תשלום"
+✅ "שילמתי את העשרה שקלים" / "שילמתי 10 ש\"ח"
+✅ "עשיתי העברה" / "שלחתי העברה"
+✅ "תשלום עבר" / "התשלום עבר" / "שולם"
+✅ "העברתי" (בהקשר של תשלום)
+✅ "הועבר" (בהקשר של כסף)
+✅ "סיימתי לשלם"
+✅ "זה בוצע" / "נעשה" (בהקשר של תשלום)
 
-PAYMENT = NO examples (not payment confirmation):
-- "קיבלת את התשלום?" → NO (question)
-- "אני אשלם" → NO (future promise)
-- "מתי לשלם?" → NO (question)
-- "איך משלמים?" → NO (question)
-- "כמה עולה?" → NO (question about price)
-- "תודה" alone → NO (not payment confirmation)
-- "אוקיי" alone → NO (not payment confirmation)
+PAYMENT = NO examples (NOT payment confirmation):
+❌ "קיבלת את התשלום?" → NO (שאלה)
+❌ "אני אשלם" → NO (הבטחה לעתיד)
+❌ "מתי לשלם?" → NO (שאלה)
+❌ "איך משלמים?" → NO (שאלה)
+❌ "כמה עולה?" → NO (שאלה על מחיר)
+❌ "תודה" לבד → NO (לא אישור תשלום)
+❌ "אוקיי" לבד → NO (לא אישור תשלום)
 
 Respond in this exact format:
 PAYMENT:[YES/NO]
@@ -4232,6 +4292,14 @@ NAME:[full name if found, or NONE]
 
 Examples:
 Message: "שילמתי"
+PAYMENT:YES
+NAME:NONE
+
+Message: "שילמתי כבר"
+PAYMENT:YES
+NAME:NONE
+
+Message: "כבר שילמתי"
 PAYMENT:YES
 NAME:NONE
 
@@ -5210,6 +5278,10 @@ async function sendFollowupMessage(phone, client, messageData) {
     return new Promise(async (resolve) => {
         try {
             const chatId = phone + '@c.us';
+            
+            // סימון שהבוט פעיל עם הלקוח הזה (למניעת זיהוי כהודעה חיצונית)
+            markBotActivity(phone);
+            
             const chat = await whatsappClient.getChatById(chatId);
             
             if (messageData.type === 'gif') {
@@ -5301,27 +5373,43 @@ async function detectStopRequestWithGPT(message) {
                 role: "system",
                 content: `Answer only YES or NO. 
 
-Is the user asking to stop receiving messages, showing they're NOT interested, or explicitly requesting to opt out?
+Is the user showing disinterest or asking to stop?
 
-Examples of YES:
-- "תפסיק לשלוח לי"
-- "לא מעוניין"
-- "די תודה"
-- "לא רוצה יותר"
-- "תפסיקו לשלוח"
+⚠️ IMPORTANT: Be SENSITIVE to rejections! Answer YES for ANY form of disinterest.
 
-Examples of NO:
-- "אני עסוק כרגע"
-- "נשמע טוב"
-- "תודה" (without asking to stop)
-- "אשמע ממך בהמשך"
-- "זה שעתיים נסיעה מהבית שלי" (this is an explanation, not a stop request)
-- "זה רחוק ממני" (this is an explanation, not a stop request)
-- "זה לא מתאים לי מבחינת מרחק" (this is an explanation, not a stop request)
-- Any explanation about distance, time, or reasons - without saying "not interested" explicitly
+Examples of YES (answer YES for all of these):
+- "לא מעוניין" / "לא מעוניינת"
+- "לא רלוונטי" / "לא רלבנטי"
+- "לא תודה" / "תודה לא"
+- "די תודה" / "תודה די"
+- "לא" (just "no" by itself)
+- "לא רוצה" / "לא רוצה יותר"
+- "תפסיק לשלוח לי" / "תפסיקו לשלוח"
+- "לא בשבילי" / "זה לא בשבילי"
+- "לא מתאים" / "לא מתאים לי"
+- "לא כרגע" / "לא עכשיו"
+- "לא צריך"
+- "פאס" / "pass"
+- "רחוק ממני" / "רחוק מדי" / "זה רחוק"
+- "יקר" / "יקר לי" / "יקר מדי"
+- "אין לי זמן" / "אין זמן"
+- "לא מתאים לי מבחינת מרחק/זמן/מחיר"
+- "אולי בעתיד" / "לא בזמן הזה"
+- "לא מחפש/ת"
+- "לא קשור"
+- "אני עסוק/ה" (if it sounds like a polite rejection)
 
-Answer YES if user clearly wants to stop or is not interested at all.
-Answer NO if the user is just explaining a reason (like distance, time, etc.) without explicitly saying "not interested" again.`
+Examples of NO (answer NO only for these):
+- "נשמע טוב" / "נשמע מעניין"
+- "כן" / "בטח" / "אשמח"
+- "מתי יש אימונים?"
+- "כמה זה עולה?" (asking for info = interested)
+- Questions about schedule, price, location (= interested)
+- "תודה על המידע" (neutral, not a rejection)
+- "אני אחשוב על זה" (thinking = not a clear rejection yet)
+
+🎯 Rule: If there's ANY indication of disinterest or rejection - answer YES.
+Only answer NO if the message shows clear interest or just asks questions.`
             }, {
                 role: "user",
                 content: message
@@ -5842,6 +5930,8 @@ async function checkAndStartFollowups() {
                 AND followup_stopped = FALSE 
                 AND (opt_out_followup_only IS NULL OR opt_out_followup_only = FALSE)
                 AND payment_confirmed = FALSE
+                AND (early_rejection_detected IS NULL OR early_rejection_detected = FALSE)
+                AND (awaiting_stop_response IS NULL OR awaiting_stop_response = FALSE)
                 AND last_message_date IS NOT NULL
                 AND last_message_date <= ?
                 AND phone NOT IN (SELECT phone FROM blocked_contacts WHERE blocked_from_followup = 1)`,
@@ -5912,6 +6002,8 @@ async function checkFollowupSchedule() {
                 AND followup_stopped = FALSE 
                 AND (opt_out_followup_only IS NULL OR opt_out_followup_only = FALSE)
                 AND payment_confirmed = FALSE
+                AND (early_rejection_detected IS NULL OR early_rejection_detected = FALSE)
+                AND (awaiting_stop_response IS NULL OR awaiting_stop_response = FALSE)
                 AND next_followup_date IS NOT NULL 
                 AND next_followup_date <= ?
                 AND phone NOT IN (SELECT phone FROM blocked_contacts WHERE blocked_from_followup = 1)`,
@@ -6169,7 +6261,9 @@ async function processMessage(message, sessionId) {
     // =========================================
     
     // ⚠️⚠️⚠️ קריטי: אם הלקוח מחכה לתשובה על "למה?" - בודקים את זה לפני הכל!
-    if (client && client.awaiting_stop_response && !client.followup_stopped) {
+    // ⚠️ תיקון: הסרנו את הבדיקה !client.followup_stopped כי followup_stopped נקבע ל-TRUE
+    //    כשאנחנו שואלים "למה?" (כדי לעצור פולואו-אפ) אבל עדיין צריכים לטפל בתשובה
+    if (client && client.awaiting_stop_response) {
         console.log(`\n📨 ========== הודעה חדשה מ-${phone} ==========`);
         console.log(`📝 תוכן ההודעה: "${message}"`);
         console.log(`👤 לקוח: ${client.name || 'ללא שם'}`);
@@ -6214,6 +6308,9 @@ async function processMessage(message, sessionId) {
         // אם לא שינה דעתו - שולחים למנהלים עם הסיבה וחוסמים
         console.log('✅ זוהתה תשובה על "למה?" - שולח למנהלים עם הסיבה');
         
+        // ⚠️ חסימה מלאה של הלקוח - כולל מהבוט וגם מפולואו-אפ
+        await blockClientCompletely(phone, client.name || client.full_name, 'לקוח ענה על שאלת למה - סיבה: ' + message.substring(0, 50));
+        
         const summary = await extractClientDetailsFromConversation(phone);
         await sendNotInterestedNotificationToManagers(client, summary, message);
         
@@ -6230,7 +6327,7 @@ async function processMessage(message, sessionId) {
                     if (err) {
                         console.error('❌ שגיאה בעדכון סטטוס אחרי תשובה על "למה?":', err.message);
                     } else {
-                        console.log('✅ עדכון DB אחרי תשובה על "למה?" - followup_stopped = TRUE');
+                        console.log('✅ עדכון DB אחרי תשובה על "למה?" - followup_stopped = TRUE + blocked');
                     }
                     resolve();
                 }
@@ -6895,7 +6992,7 @@ async function processMessage(message, sessionId) {
                 console.log('✅ זו שאלה ספציפית - עונים');
                 // ממשיך לעיבוד רגיל
             } else {
-                console.log('❌ לא זוהה עניין מחודש ולא שאלה ספציפית - לא עונים');
+                console.log('ℹ️ לא זוהה עניין מחודש ולא שאלה ספציפית - לא עונים');
                 // שמירת ההודעה להיסטוריה בלבד
                 await saveConversation(sessionId, 'user', message);
                 return null;
@@ -6975,23 +7072,63 @@ async function processMessage(message, sessionId) {
             if (isEarlyRejection) {
                 console.log('🚫 זוהה סירוב מוקדם! מטפל בזה כ-"לא מעוניין"');
                 
-                // אם זו הפעם הראשונה - שואלים "למה?" ושולחים למנהלים
-                const response = await sendWhyQuestionAfterRejection(sessionId, client);
-                
-                // שמירת ההודעות להיסטוריה
+                // ⚠️ שמירת הודעת המשתמש קודם (לפני תשובת הבוט)
                 await saveConversation(sessionId, "user", message);
                 
-                // שליחה מיידית למנהלים
+                // ⚠️ חסימה מיידית מפולואו-אפ (לא מהבוט - עדיין שואלים "למה?")
+                // תיקון: שימוש ב-INSERT OR IGNORE + UPDATE נפרד כדי לא לדרוס חסימות קיימות
+                await new Promise((resolve) => {
+                    const normalizedPhone = normalizePhoneNumber(phone);
+                    const clientName = client.name || client.full_name || 'לא ידוע';
+                    
+                    // קודם מנסים להוסיף (אם לא קיים)
+                    db.run(`INSERT OR IGNORE INTO blocked_contacts (phone, full_name, reason, blocked_from_bot, blocked_from_followup) 
+                            VALUES (?, ?, 'סירוב מוקדם', 0, 1)`,
+                        [normalizedPhone, clientName],
+                        (err) => {
+                            if (err) {
+                                console.error('❌ שגיאה בהוספה ל-blocked_contacts:', err.message);
+                            }
+                            
+                            // אחר כך מעדכנים רק את blocked_from_followup (לא נוגעים ב-blocked_from_bot)
+                            db.run(`UPDATE blocked_contacts SET 
+                                    blocked_from_followup = 1,
+                                    reason = COALESCE(reason, 'סירוב מוקדם'),
+                                    full_name = COALESCE(full_name, ?)
+                                    WHERE phone = ?`,
+                                [clientName, normalizedPhone],
+                                (updateErr) => {
+                                    if (updateErr) {
+                                        console.error('❌ שגיאה בעדכון blocked_contacts:', updateErr.message);
+                                    } else {
+                                        console.log(`🚫 ${normalizedPhone} נחסם מפולואו-אפ (לא נוגע בחסימה מבוט)`);
+                                    }
+                                    resolve();
+                                }
+                            );
+                        }
+                    );
+                });
+                
+                // שליחה מיידית למנהלים (לפני שאלת "למה?" כדי שיקבלו את ההודעה המקורית)
                 if (!client.notification_sent_to_managers) {
                     console.log('📤 שולח הודעה למנהלים על סירוב מוקדם...');
                     try {
                         const summary = await extractClientDetailsFromConversation(phone);
-                        await sendNotInterestedNotificationToManagers(client, summary, null);
+                        await sendNotInterestedNotificationToManagers(client, summary, message);
                         console.log('✅ הודעה נשלחה למנהלים');
+                        
+                        // עדכון שנשלח למנהלים
+                        await new Promise((res) => {
+                            db.run(`UPDATE clients SET notification_sent_to_managers = TRUE WHERE phone = ?`, [phone], res);
+                        });
                     } catch (error) {
                         console.error('❌ שגיאה בשליחה למנהלים:', error.message);
                     }
                 }
+                
+                // עכשיו שואלים "למה?"
+                const response = await sendWhyQuestionAfterRejection(sessionId, client);
                 
                 return response;
             }
@@ -7065,7 +7202,7 @@ https://youtube.com/shorts/_Bk2vYeGQTQ?si=n1wgv8-3t7_hEs45`;
             
             return finalResponse;
         } else {
-            console.log('❌ הלקוח לא אישר את השעה - מעביר את השיחה ל-GPT לטיפול');
+            console.log('ℹ️ הלקוח לא אישר את השעה - מעביר את השיחה ל-GPT לטיפול');
             // אם הלקוח לא אישר - נותנים ל-GPT לטפל בזה (יכול להיות שהוא שואל שאלה או רוצה שעה אחרת)
             // לא עושים כלום - ממשיכים לעיבוד רגיל של ה-GPT למטה
         }
@@ -7292,7 +7429,7 @@ https://youtube.com/shorts/_Bk2vYeGQTQ?si=n1wgv8-3t7_hEs45`;
                 return fallbackResponse;
             }
         } else {
-            console.log('❌ GPT לא זיהה אישור תשלום - מאפס דגל וממשיך לטיפול רגיל');
+            console.log('ℹ️ GPT לא זיהה אישור תשלום - מאפס דגל וממשיך לטיפול רגיל');
             
             // איפוס הדגל - הלקוח כנראה שלח משהו אחר
             await new Promise((resolve) => {
@@ -8270,6 +8407,9 @@ async function processBatchedMessages(sessionId, messages, chat) {
     const MAX_PROCESSING_ITERATIONS = 5; // הגבלה למניעת לולאה אינסופית
     let iterationCount = 0;
     
+    // סימון שהבוט פעיל עם הלקוח הזה (למניעת זיהוי כהודעה חיצונית)
+    markBotActivity(sessionId);
+    
     try {
         console.log('📨 מעבד batch של הודעות:', messages);
         
@@ -8369,6 +8509,111 @@ async function processBatchedMessages(sessionId, messages, chat) {
         console.log('🔓 Session שוחרר מעיבוד (לאחר שגיאה)');
     }
 }
+
+// ===============================
+// EXTERNAL OUTGOING MESSAGE TRACKER (BoostApp, etc.)
+// ===============================
+
+// מעקב אחרי הודעות יוצאות שנשלחו ממקורות חיצוניים (כמו BoostApp)
+// ה-event הזה תופס את כל ההודעות כולל יוצאות
+const recentBotActivity = new Map(); // phone -> timestamp of last bot activity
+
+// מעדכן את זמן הפעילות האחרונה של הבוט עם לקוח
+function markBotActivity(phone) {
+    const cleanPhone = phone.replace('@c.us', '').replace(/\D/g, '');
+    recentBotActivity.set(cleanPhone, Date.now());
+    // ניקוי אוטומטי אחרי 2 דקות
+    setTimeout(() => recentBotActivity.delete(cleanPhone), 2 * 60 * 1000);
+}
+
+// בודק אם הבוט היה פעיל לאחרונה עם לקוח (30 שניות)
+function wasBotRecentlyActive(phone) {
+    const cleanPhone = phone.replace('@c.us', '').replace(/\D/g, '');
+    const lastActivity = recentBotActivity.get(cleanPhone);
+    if (!lastActivity) return false;
+    return (Date.now() - lastActivity) < 30000; // 30 שניות
+}
+
+whatsappClient.on('message_create', async (message) => {
+    // רק הודעות יוצאות (שנשלחו ממני)
+    if (!message.fromMe) return;
+    
+    // התעלמות מהודעות קבוצה
+    try {
+        const chat = await message.getChat();
+        if (chat.isGroup) return;
+    } catch (e) {
+        return;
+    }
+    
+    const phone = message.to.replace('@c.us', '');
+    const messageBody = message.body || '';
+    
+    // אם הבוט היה פעיל לאחרונה עם הלקוח הזה - זו הודעה מהבוט שלנו, מתעלמים
+    if (wasBotRecentlyActive(phone)) {
+        console.log(`⬅️ הודעה יוצאת ל-${phone} - מהבוט שלנו, מתעלם`);
+        return;
+    }
+    
+    console.log(`📤 [BoostApp/חיצוני] זוהתה הודעה יוצאת ל-${phone}: ${messageBody.substring(0, 50)}...`);
+    
+    // בדיקה אם הלקוח קיים
+    const existingClient = await new Promise((resolve) => {
+        db.get(`SELECT * FROM clients WHERE phone = ?`, [phone], (err, row) => {
+            if (err) {
+                console.error('❌ שגיאה בבדיקת לקוח:', err.message);
+                resolve(null);
+            } else {
+                resolve(row || null);
+            }
+        });
+    });
+    
+    if (!existingClient) {
+        // יוצר לקוח חדש - הודעה חיצונית ללקוח שלא במערכת
+        console.log(`➕ [חיצוני] יוצר לקוח חדש: ${phone}`);
+        await new Promise((resolve) => {
+            db.run(`INSERT INTO clients (phone, created_at, updated_at, last_message_date, external_message_sent) 
+                    VALUES (?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, TRUE)`,
+                [phone],
+                (err) => {
+                    if (err) {
+                        console.error('❌ שגיאה ביצירת לקוח חדש:', err.message);
+                    } else {
+                        console.log(`✅ [חיצוני] לקוח חדש נוצר: ${phone}`);
+                    }
+                    resolve();
+                }
+            );
+        });
+    } else {
+        // מעדכן last_message_date - הודעה חיצונית ללקוח קיים
+        await new Promise((resolve) => {
+            db.run(`UPDATE clients SET 
+                    last_message_date = CURRENT_TIMESTAMP,
+                    updated_at = CURRENT_TIMESTAMP,
+                    external_message_sent = TRUE
+                    WHERE phone = ?`,
+                [phone],
+                (err) => {
+                    if (err) {
+                        console.error('❌ שגיאה בעדכון last_message_date:', err.message);
+                    } else {
+                        console.log(`✅ [חיצוני] עודכן last_message_date ל-${phone}`);
+                    }
+                    resolve();
+                }
+            );
+        });
+    }
+    
+    // שמירת ההודעה בהיסטוריה
+    if (messageBody) {
+        const sessionId = phone + '@c.us';
+        await saveConversation(sessionId, 'assistant', `[BoostApp] ${messageBody}`);
+        console.log(`💾 [חיצוני] נשמרה הודעה בהיסטוריה`);
+    }
+});
 
 // ===============================
 // WHATSAPP MESSAGE HANDLER
